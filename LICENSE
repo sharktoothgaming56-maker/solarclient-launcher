@@ -1,0 +1,87 @@
+SolarClient Source-Available License (Proprietary)
+
+Copyright (c) 2026 SolarClient. All rights reserved.
+
+The SolarClient launcher source code, binaries, artwork, names and logos
+(together, the "Software") are proprietary. The source code is published
+so that anyone can read it and check what the launcher does. Publishing it
+does NOT make it open source, and no rights are granted except those
+written below.
+
+1. WHAT YOU MAY DO
+
+   a. View and read the source code, for personal review, learning, or
+      security auditing.
+   b. Download and install official SolarClient builds, from the official
+      SolarClient website or official SolarClient GitHub releases, and use
+      them for personal, non-commercial purposes.
+   c. Report bugs or security issues to SolarClient.
+
+2. WHAT YOU MAY NOT DO
+
+   Unless SolarClient has given you written permission, you may not:
+
+   a. Modify, adapt, translate, or create derivative works of the Software
+      or any part of it.
+   b. Copy, extract, or reuse any portion of the source code (including
+      individual files, functions, snippets, stylesheets, or assets) in any
+      other software, project, or product, whether public or private.
+   c. Redistribute, republish, mirror, or share the Software or any part of
+      it, in source or compiled form, including modified or unmodified
+      builds.
+   d. Sell, resell, rent, lease, sublicense, or otherwise commercially
+      exploit the Software or any part of it.
+   e. Build, publish, or distribute your own builds of the Software.
+   f. Remove, alter, or obscure any copyright, license, or attribution
+      notice.
+   g. Use the SolarClient name, logo, or branding for any other product or
+      in a way that suggests endorsement.
+   h. Access, probe, or use SolarClient online services (friends, chat,
+      communities, updates, hosting, or any other API) other than through
+      an official SolarClient build, or attempt to bypass their
+      authentication, rate limits, or other protections.
+
+3. FORKS AND VIEWING ON GITHUB
+
+   Where the source is hosted on GitHub, GitHub's Terms of Service may let
+   you view or fork the repository on GitHub. That does not grant any of the
+   rights listed in section 2. A fork may only be used to view the code.
+
+4. THIRD-PARTY COMPONENTS
+
+   The Software uses third-party open-source components (for example
+   Electron and npm packages). Those components remain under their own
+   licenses, and nothing in this license restricts your rights under them.
+   This license covers only SolarClient's own code and assets.
+
+5. CONTRIBUTIONS
+
+   SolarClient does not accept code contributions unless it has agreed to
+   do so in writing. Anything you send may be used by SolarClient without
+   any obligation to you.
+
+6. TERMINATION
+
+   Any breach of this license ends your rights under it automatically and
+   immediately. On termination you must stop using the Software and delete
+   any copies, other than an unmodified official build that you installed
+   yourself.
+
+7. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+8. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL SOLARCLIENT OR ITS AUTHORS BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Minecraft is a trademark of Mojang Synergies AB. SolarClient is not an
+official Minecraft product and is not approved by or associated with Mojang
+or Microsoft.
+
+For permission requests, contact SolarClient through https://figgysmp.shop.
