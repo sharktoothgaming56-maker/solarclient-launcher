@@ -432,7 +432,7 @@ class Friends extends EventEmitter {
     });
   }
 
-  sendAdminCommand({ role, op, target }) {
+  sendAdminCommand({ role, op, target, discord }) {
     return new Promise((resolve) => {
       if (this.transport.kind !== 'socket' || !this.transport.connected) {
         return resolve({ ok: false, reason: 'Not connected to SolarClient online.' });
@@ -440,7 +440,7 @@ class Friends extends EventEmitter {
       const done = (result) => { clearTimeout(timer); this._adminWaiters.delete(done); resolve(result); };
       const timer = setTimeout(() => done({ ok: false, reason: 'The server did not respond.' }), 8000);
       this._adminWaiters.add(done);
-      this.transport.send({ t: 'admin_cmd', role, op, target });
+      this.transport.send({ t: 'admin_cmd', role, op, target, ...(discord ? { discord } : {}) });
     });
   }
 
