@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SolarClient</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-bg-kind="nebula">
+
+<!-- background stack: starfield canvas + nebula blobs + scene image -->
+<div class="bg-stack">
+  <div class="bg-nebula">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+  <div class="bg-scene" id="bg-scene"></div>
+  <div class="bg-scene-dark"></div>
+  <canvas id="starfield"></canvas>
+</div>
+
+<div class="titlebar">
+  <div class="titlebar-drag">
+    <img class="titlebar-brand" src="assets/solar-client-logo.png" alt="Solar Client" draggable="false">
+    <span class="titlebar-version" id="titlebar-version"></span>
+  </div>
+  <div class="titlebar-tools">
+    <div class="updates-menu-wrap" id="updates-menu-wrap">
+      <button type="button" class="topbar-chip" id="update-chip" title="Updates">Updates</button>
+      <div class="updates-menu hidden" id="updates-menu">
+        <button type="button" class="updates-menu-item" id="updates-check">Check for updates</button>
+        <div class="updates-menu-sep"></div>
+        <div class="updates-menu-section-label">Updates</div>
+        <div class="updates-menu-row" id="updates-stable-row">
+          <span class="updates-menu-meta" id="updates-stable-meta">You're up to date</span>
+          <button type="button" class="updates-menu-action hidden" id="updates-stable-go">Install</button>
+        </div>
+        <div class="updates-menu-section-label">Beta updates</div>
+        <div class="updates-menu-row" id="updates-beta-row">
+          <span class="updates-menu-meta" id="updates-beta-meta">No beta available</span>
+          <button type="button" class="updates-menu-action hidden" id="updates-beta-go">Install beta</button>
+        </div>
+        <div class="updates-menu-sep" id="updates-beta-switch-sep"></div>
+        <button type="button" class="updates-menu-item hidden" id="updates-switch-stable">Switch back to stable</button>
+      </div>
+    </div>
+    <button type="button" class="topbar-chip beta hidden" id="beta-chip" title="You're on a beta build">Beta</button>
+    <div id="online-indicator" class="online-indicator offline" role="button" tabindex="0" title="See who's online">
+      <span class="online-dot"></span>
+      <span id="online-indicator-label">Online —</span>
+      <svg class="oi-caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3"/></svg>
+    </div>
+    <div id="ingame-indicator" class="online-indicator ingame offline" title="People with the game running">
+      <svg class="ingame-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm4-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+      <span id="ingame-indicator-label">In game —</span>
+    </div>
+    <button type="button" class="topbar-chip chat-chip" id="chat-chip" title="Live chat with everyone on SolarClient">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>
+      <span>Live chat</span>
+      <span class="chat-chip-badge hidden" id="chat-chip-badge">0</span>
+    </button>
+    <button type="button" class="topbar-chip mod-chip beta-only hidden" id="mod-chip" title="Moderation">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/></svg>
+      <span>Mod</span>
+      <span class="chat-chip-badge hidden" id="mod-chip-badge">0</span>
+    </button>
+  </div>
+  <div class="window-controls">
+    <button id="win-min" title="Minimize" aria-label="Minimize"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M2.5 7h9"/><path class="wc-i" d="M2.5 7h9"/></svg></button>
+    <button id="win-max" title="Maximize" aria-label="Maximize"><svg class="wc-ico" viewBox="0 0 14 14"><rect class="wc-o" x="2.5" y="2.5" width="9" height="9" rx="1.5"/><rect class="wc-i" x="2.5" y="2.5" width="9" height="9" rx="1.5"/></svg></button>
+    <button id="win-close" title="Close" aria-label="Close" class="close-btn"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M3 3l8 8M11 3l-8 8"/><path class="wc-i" d="M3 3l8 8M11 3l-8 8"/></svg></button>
+  </div>
+</div>
+
+<div class="app">
+  <aside class="sidebar glass liquid-glass">
+    <button class="nav-btn active" data-view="launchpad" title="Launchpad">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="instances" title="Versions">
+      <svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="mods" title="Content">
+      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4l16-.02V7z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="customize" title="Customize">
+      <svg viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="friends" title="Friends">
+      <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      <span class="nav-badge hidden" id="friends-nav-badge">0</span>
+    </button>
+    <button class="nav-btn" data-view="servers" title="Servers">
+      <svg viewBox="0 0 24 24"><path d="M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="skins" title="Skins">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+    </button>
+    <div class="sidebar-spacer"></div>
+    <button class="nav-btn beta-only" id="nav-legal" title="Terms of Service and Privacy Policy" aria-label="Terms of Service and Privacy Policy">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm-1 7V3.5L18.5 9zM8 13h8v2H8zm0 4h8v2H8zm0-8h3v2H8z"/></svg>
+    </button>
+    <button class="nav-btn" data-view="settings" title="Settings">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+    </button>
+  </aside>
+
+  <div class="main glass liquid-glass">
+    <header class="topbar">
+      <div class="instance-select-wrap">
+        <select id="launch-instance-select"></select>
+      </div>
+      <div class="topbar-right">
+        <div class="account" id="account-box"></div>
+      </div>
+    </header>
+
+    <div id="community-stage" class="community-stage hidden liquid-glass">
+      <div class="cs-plate"></div>
+      <div class="cs-head">
+        <div class="cs-head-id">
+          <div class="cs-icon" id="cs-icon" aria-hidden="true"></div>
+          <div class="cs-head-text">
+            <div class="cs-kicker">Community<span class="cs-kicker-meta" id="cs-meta"></span></div>
+            <div class="cs-title" id="cs-title"></div>
+          </div>
+        </div>
+        <div class="cs-tools">
+          <button type="button" class="cs-tool" id="cs-settings" title="Community name and picture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.7 1.7 1l.4 2.7h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>Settings</button>
+          <button type="button" class="cs-tool" id="cs-add-text" title="Add a text channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>Text</button>
+          <button type="button" class="cs-tool" id="cs-add-voice" title="Add a voice channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>Voice</button>
+          <button type="button" class="cs-tool cs-tool-accent" id="cs-invite" title="Invite friends"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2zm9 4c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>Invite</button>
+          <button type="button" class="cs-x" id="cs-close" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        </div>
+      </div>
+      <div class="cs-addbar hidden" id="cs-addbar">
+        <input id="cs-new-ch" maxlength="32" placeholder="Channel name" autocomplete="off">
+        <button type="button" class="cs-tool" id="cs-add-go">Add</button>
+      </div>
+      <div class="cs-pop hidden" id="cs-invite-pop"></div>
+      <div class="cs-body">
+        <div class="cs-channels" id="cs-channels"></div>
+        <div class="cs-main" id="cs-main"></div>
+      </div>
+    </div>
+
+    <!-- LAUNCHPAD -->
+    <section class="view active" id="view-launchpad">
+      <div class="launchpad-hero" id="launchpad-hero">
+        <span class="launch-art" id="launch-art"></span>
+        <span class="launch-art-stars" id="launch-art-stars"></span>
+        <!-- Moved out of .launch-col. That column is 440px and right
+             aligned, so `left:50%` centred the watermark on the column
+             rather than on the hero — it sat behind the buttons instead
+             of behind the character. -->
+        <div id="bg-version-watermark"></div>
+        <span class="launch-badge" id="launch-badge">
+          <span class="lb-ver" id="lb-ver">—</span>
+          <span class="lb-loader" id="lb-loader">vanilla</span>
+        </span>
+        <div class="hero-sheen"></div>
+        <div class="launch-center">
+          <div class="skin-render-wrap" id="skin-wrap">
+            <div class="skin-stage">
+              <canvas id="skin-canvas" class="skin-canvas"></canvas>
+              <img id="skin-render" class="skin-render" alt="" style="display:none;">
+              <div class="skin-ring"></div>
+              <div class="skin-shadow"></div>
+            </div>
+          </div>
+          <div class="launch-col">
+            <div class="edition-switch liquid-glass" id="edition-switch">
+              <button class="edition-btn active" data-edition="java">
+                <span class="ed-dot"></span>Java
+              </button>
+              <button class="edition-btn" data-edition="bedrock">
+                <span class="ed-dot"></span>Bedrock
+              </button>
+            </div>
+          <div class="launch-cluster">
+              <div class="launch-btn-row">
+                <button id="launch-btn" class="launch-btn liquid-glass" disabled>
+                  <span class="launch-label" id="launch-label">LAUNCH GAME</span>
+                  <span class="launch-sub" id="launch-sub">Sign in to get started</span>
+                </button>
+                <button id="launch-another-btn" class="launch-another liquid-glass hidden" title="Launch the selected instance as an additional game">
+                  <span class="plus">+</span><span>Launch<br>another</span>
+                </button>
+              </div>
+            <div class="launch-chips">
+              <button id="version-chip" class="chip liquid-glass" title="Switch instance or grab a new version">
+                <span class="chip-icon">◆</span><span id="version-chip-label">No instance</span><span class="chip-caret" aria-hidden="true"></span>
+              </button>
+              <button id="perf-chip" class="chip chip-toggle liquid-glass" title="Tuned Java flags for smoother frame times">
+                <span class="chip-icon">⚡</span><span class="chip-label">Performance</span><span class="chip-state" id="perf-chip-state">ON</span>
+              </button>
+              <button id="fastlaunch-chip" class="chip chip-toggle liquid-glass off hidden" title="Faster launch">
+                <span class="chip-icon">»</span><span class="chip-label">Faster launch</span><span class="chip-state" id="fastlaunch-chip-state">OFF</span>
+              </button>
+              <button id="monitor-chip" class="chip liquid-glass hidden" title="Open the live game monitor">
+                <span class="chip-icon">◉</span><span>Monitor</span>
+              </button>
+            </div>
+
+            <!-- level card -->
+            <div class="level-card liquid-glass" id="level-card">
+              <div class="level-card-left">
+                <span class="level-card-ore" id="level-card-ore">⬛</span>
+                <div class="level-card-info">
+                  <span class="level-card-name" id="level-card-name">Netherite</span>
+                  <span class="level-card-num" id="level-card-num">Level —</span>
+                </div>
+              </div>
+              <div class="level-card-right">
+                <div class="level-card-bar-wrap">
+                  <div class="level-card-bar" id="level-card-bar"></div>
+                </div>
+                <span class="level-card-xp" id="level-card-xp">— / — XP</span>
+              </div>
+            </div>
+            <div id="prewarm-chip" class="prewarm-chip hidden">
+              <div class="prewarm-spinner"></div>
+              <span id="prewarm-label">Pre-downloading…</span>
+              <div class="prewarm-track"><div class="prewarm-fill" id="prewarm-fill"></div></div>
+            </div>
+          </div>
+
+          <!-- Bedrock mode -->
+          <div class="bedrock-panel hidden" id="bedrock-panel">
+            <button id="bedrock-launch-btn" class="bedrock-launch liquid-glass" disabled>
+              <span class="bl-label">LAUNCH BEDROCK</span>
+              <span class="bl-sub" id="bedrock-sub">Checking for Minecraft for Windows…</span>
+            </button>
+            <div class="edition-switch liquid-glass" id="bedrock-edition-switch">
+              <button class="edition-btn active" data-bedrock="release"><span class="ed-dot"></span>Release</button>
+              <button class="edition-btn" data-bedrock="preview"><span class="ed-dot"></span>Preview</button>
+            </div>
+            <div class="bedrock-note" id="bedrock-note">
+              Starts your installed copy from the Microsoft Store.
+            </div>
+            <button id="bedrock-store-btn" class="pill-btn hidden">Get it from the Microsoft Store</button>
+          </div>
+          </div>
+        </div>
+
+        <!-- version switcher popover -->
+        <div id="version-popover" class="version-popover glass liquid-glass hidden">
+          <div class="pop-section-title">Recent <span class="dim" style="font-weight:600;text-transform:none;letter-spacing:0;">· last 3</span></div>
+          <div id="pop-recent-list" class="pop-list"></div>
+          <div class="pop-divider"></div>
+          <div class="pop-section-title">New instance </div>
+          <div class="pop-loader-row">
+            <span class="pop-loader-label">Loader</span>
+            <div class="pop-loader-opts" id="pop-loader-opts">
+              <button class="pop-loader-btn active" data-loader="vanilla">Vanilla</button>
+              <button class="pop-loader-btn" data-loader="fabric">Fabric</button>
+              <button class="pop-loader-btn" data-loader="quilt">Quilt</button>
+              <button class="pop-loader-btn" data-loader="forge">Forge</button>
+            </div>
+            <div class="pop-search-wrap">
+              <span class="search-icon">⌕</span>
+              <input id="pop-version-search" placeholder="Find a version…">
+            </div>
+          </div>
+          <div id="pop-version-groups" class="version-art-grid"></div>
+        </div>
+      </div>
+
+      <!-- Discord link CTA — shown until an Application ID is configured -->
+      <!-- starts hidden: it is only shown once we know you have not linked -->
+      <div id="discord-link-banner" class="discord-link-banner liquid-glass hidden">
+        <div class="dlb-icon">
+          <svg width="22" height="22" viewBox="0 0 71 55" fill="white" xmlns="http://www.w3.org/2000/svg"><g clip-path="url(#clip0)"><path d="M60.1045 4.8978C55.5792 2.8214 50.7265 1.2916 45.6527 0.41542C45.5603 0.39851 45.468 0.44077 45.4204 0.52529C44.7963 1.6353 44.105 3.0834 43.6209 4.2216C38.1637 3.4046 32.7345 3.4046 27.3892 4.2216C26.905 3.0581 26.1886 1.6353 25.5617 0.52529C25.5141 0.44359 25.4218 0.40133 25.3294 0.41542C20.2584 1.2888 15.4057 2.8186 10.8776 4.8978C10.8384 4.9147 10.8048 4.9429 10.7825 4.9795C1.57795 18.7309 -0.943561 32.1443 0.293408 45.3914C0.299005 45.4562 0.335386 45.5182 0.385761 45.5576C6.45866 50.0174 12.3413 52.7249 18.1147 54.5195C18.2071 54.5477 18.305 54.5139 18.3638 54.4378C19.7295 52.5728 20.9469 50.6063 21.9907 48.5383C22.0523 48.4172 21.9935 48.2735 21.8676 48.2256C19.9366 47.4931 18.0979 46.6 16.3292 45.5858C16.1893 45.5041 16.1781 45.304 16.3068 45.2082C16.679 44.9293 17.0513 44.6391 17.4067 44.3461C17.471 44.2926 17.5606 44.2813 17.6362 44.3151C29.2558 49.6202 41.8354 49.6202 53.3179 44.3151C53.3935 44.2785 53.4831 44.2898 53.5502 44.3433C53.9057 44.6363 54.2779 44.9293 54.6529 45.2082C54.7816 45.304 54.7732 45.5041 54.6333 45.5858C52.8646 46.6197 51.0259 47.4931 49.0921 48.2228C48.9662 48.2707 48.9102 48.4172 48.9718 48.5383C50.038 50.6034 51.2554 52.5699 52.5959 54.435C52.6519 54.5139 52.7526 54.5477 52.845 54.5195C58.6464 52.7249 64.529 50.0174 70.6019 45.5576C70.6551 45.5182 70.6887 45.459 70.6943 45.3942C72.1747 30.0791 68.2147 16.7757 60.1968 4.9823C60.1772 4.9429 60.1437 4.9147 60.1045 4.8978ZM23.7259 37.3253C20.2276 37.3253 17.3451 34.1136 17.3451 30.1693C17.3451 26.225 20.1717 23.0133 23.7259 23.0133C27.308 23.0133 30.1626 26.2532 30.1066 30.1693C30.1066 34.1136 27.28 37.3253 23.7259 37.3253ZM47.3178 37.3253C43.8196 37.3253 40.9371 34.1136 40.9371 30.1693C40.9371 26.225 43.7636 23.0133 47.3178 23.0133C50.9 23.0133 53.7545 26.2532 53.6986 30.1693C53.6986 34.1136 50.9 37.3253 47.3178 37.3253Z"/></g><defs><clipPath id="clip0"><rect width="71" height="55" fill="white"/></clipPath></defs></svg>
+        </div>
+        <div class="dlb-text">
+          <b id="dlb-title">Discord</b>
+          <span id="dlb-sub">Shows what you're playing on your profile</span>
+        </div>
+        <button id="dlb-link-btn" class="pill-btn primary">Link Discord</button>
+        <button id="dlb-dismiss-btn" class="dlb-dismiss hidden" title="Dismiss">✕</button>
+      </div>
+
+      <!-- PERFORMANCE DOCK — lives on the launch page now -->
+      <div class="perf-dock" id="perf-dock">
+        <div class="dock-card glass liquid-glass rig-card">
+          <div class="dock-head">
+            <span class="dock-title">Your rig</span>
+            <span class="perf-tier-badge" id="perf-tier-badge"><span class="ptb-label">Reading…</span></span>
+          </div>
+          <div class="perf-specs">
+            <div class="spec-row"><span class="spec-k">CPU</span><span class="spec-v" id="spec-cpu">—</span></div>
+            <div class="spec-row"><span class="spec-k">GPU</span><span class="spec-v" id="spec-gpu">—</span></div>
+            <div class="spec-row"><span class="spec-k">RAM</span><span class="spec-v" id="spec-ram">—</span></div>
+            <div class="spec-row"><span class="spec-k">Cores</span><span class="spec-v" id="spec-cores">—</span></div>
+          </div>
+          <div class="mem-block">
+            <div class="mem-head"><span>Memory</span><b><span id="mem-max-label">4</span> GB</b></div>
+            <div class="mem-vis" id="mem-vis"></div>
+            <input type="range" id="mem-max" min="1" max="32" value="4">
+            <input type="range" id="mem-min" min="1" max="32" value="2" class="hidden">
+            <span id="mem-min-label" class="hidden">2</span>
+            <div class="mem-advice" id="mem-advice">—</div>
+          </div>
+        </div>
+
+        <!-- FPS ballpark card removed in 3.9.1. The numbers behind it were
+             never measured — just a tier lookup table with a couple of
+             multipliers — and the ceiling of ~400 was well below what real
+             machines actually hit, so it read as a lowball on decent rigs. -->
+
+        <div class="dock-card glass liquid-glass stack-card">
+          <div class="dock-head">
+            <span class="dock-title">Performance mods</span>
+            <span class="dock-sub" id="stack-status">—</span>
+          </div>
+          <div class="stack-strip" id="mod-stack"></div>
+          <button id="optimize-btn" class="optimize-btn full">
+            <span class="ob-bolt">⚡</span><span>INSTALL ALL &amp; AUTO-TUNE</span>
+          </button>
+          <div class="dock-foot" id="optimize-foot">Installs and tunes each mod for your hardware.</div>
+        </div>
+      </div>
+
+      <!-- applied settings, collapsible -->
+      <details class="applied-details glass liquid-glass" id="applied-details">
+        <summary><span>Applied game settings</span><span class="ad-hint" id="ad-hint">verified from disk</span></summary>
+        <div class="applied-grid" id="applied-grid"></div>
+        <div class="applied-actions">
+          <button id="autotune-btn" class="pill-btn">Re-detect hardware</button>
+          <label class="toggle-inline">
+            <label class="toggle"><input type="checkbox" id="perf-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+            <span>Tuned Java flags</span>
+          </label>
+        </div>
+      </details>
+      <button id="install-boost-btn" class="hidden"></button>
+
+      <div id="launch-progress" class="launch-progress hidden">
+        <div class="launch-progress-head">
+          <span class="launch-progress-label" id="launch-progress-label">Preparing…</span>
+          <span class="launch-progress-meta"><span id="launch-progress-speed"></span><b id="launch-progress-pct">0%</b></span>
+        </div>
+        <div class="launch-progress-track"><div class="launch-progress-fill" id="launch-progress-fill"></div></div>
+      </div>
+
+      <div id="crash-banner" class="crash-banner hidden"></div>
+    </section>
+
+    <!-- INSTANCES -->
+    <section class="view" id="view-instances">
+      <div class="view-header"><h1>Versions</h1><button id="quick-create-btn" class="pill-btn primary">+ New instance</button></div>
+      <p class="dim"></p>
+
+      <div id="version-picker-panel" class="version-picker-panel glass liquid-glass hidden"></div>
+      <div id="version-grid" class="instance-grid"></div>
+
+      <div class="mods-list-header">Your instances</div>
+      <div id="instance-list" class="instance-grid"></div>
+    </section>
+
+    <!-- MODS -->
+    <section class="view" id="view-mods">
+      <div class="view-header content-switch-header">
+        <div class="mode-tabs liquid-glass" id="mode-tabs">
+          <button class="mode-tab active" data-mode="content">Content</button>
+          <button class="mode-tab" data-mode="library">Library</button>
+        </div>
+      </div>
+
+      <div class="content-bar glass liquid-glass">
+        <div class="cb-row">
+          <div class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input id="mods-search" placeholder="Search mods, modpacks, resource packs…">
+          </div>
+          <button id="import-mod-btn" class="pill-btn">+ Add mod file</button>
+          <button id="import-respack-btn" class="pill-btn">+ Add resource pack</button>
+        </div>
+        <!-- Content = things you can install, Library = what this instance
+             already has. Top Content/Library switchers replace the old h1. -->
+        <div class="cb-row mode-row">
+          <div class="cb-spacer"></div>
+          <button id="import-modpack-btn" class="pill-btn">+ Import modpack</button>
+          <button id="export-modpack-btn" class="pill-btn">⇪ Export as modpack</button>
+          <button id="sync-content-btn" class="pill-btn">⇄ Sync from another instance</button>
+        </div>
+        <div class="cb-row" id="content-controls">
+          <div class="type-tabs" id="type-tabs">
+            <button class="type-tab active" data-type="mod">Mods</button>
+            <button class="type-tab" data-type="modpack">Modpacks</button>
+            <button class="type-tab" data-type="resourcepack">Resource packs</button>
+          </div>
+          <div class="source-tabs" id="source-tabs">
+            <button class="source-tab active" data-source="modrinth">Modrinth</button>
+          </div>
+          <div class="cb-spacer"></div>
+          <span class="cb-label">Installing into</span>
+          <select id="mods-instance-select"></select>
+        </div>
+      </div>
+
+      <div id="library-pane">
+        <div id="installed-mods-panel" class="installed-mods-panel"></div>
+        <div id="installed-respacks-panel" class="installed-mods-panel"></div>
+      </div>
+
+      <div id="mods-drop-hint" class="mods-drop-hint hidden">Drop files to install</div>
+
+      <div id="content-pane">
+        <div class="mods-list-header">Browse &amp; install</div>
+        <div id="mods-list" class="mod-card-grid"></div>
+      </div>
+    </section>
+
+    <!-- SYNC DIALOG -->
+    <div id="sync-modal" class="sync-modal hidden">
+      <div class="sync-card glass liquid-glass">
+        <div class="sync-title">Sync content between instances</div>
+        <p class="sync-sub">Copies into the target instance. Nothing is removed from the source.</p>
+        <div class="sync-row">
+          <label>From<select id="sync-from"></select></label>
+          <span class="sync-arrow">→</span>
+          <label>Into<select id="sync-to"></select></label>
+        </div>
+        <div class="sync-opts">
+          <label class="toggle-inline">
+            <label class="toggle"><input type="checkbox" id="sync-mods" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+            <span>Mods <span class="hint" id="sync-mods-hint"></span></span>
+          </label>
+          <label class="toggle-inline">
+            <label class="toggle"><input type="checkbox" id="sync-packs" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+            <span>Resource packs <span class="hint">copied as-is — packs usually work across versions</span></span>
+          </label>
+        </div>
+        <div class="sync-status dim" id="sync-status"></div>
+        <div class="sync-actions">
+          <button class="pill-btn" id="sync-cancel">Cancel</button>
+          <button class="pill-btn primary" id="sync-go">Sync</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FRIENDS -->
+    <section class="view" id="view-friends">
+      <div class="view-header">
+        <h1>Friends</h1>
+        <div class="fr-status" id="fr-status"><span class="fr-dot"></span><span id="fr-status-text">Offline mode</span></div>
+      </div>
+
+      <div class="fr-layout">
+        <div class="fr-sidebar glass liquid-glass">
+          <div class="fr-search-row">
+            <input id="fr-search" placeholder="Add by username or UUID" spellcheck="false">
+            <button class="pill-btn primary" id="fr-add-btn">Follow</button>
+          </div>
+
+          <div class="fr-tabs" id="fr-tabs">
+            <button class="fr-tab active" data-tab="friends">Friends <span class="fr-count" id="fr-c-friends">0</span></button>
+            <button class="fr-tab" data-tab="following">Following <span class="fr-count" id="fr-c-following">0</span></button>
+            <button class="fr-tab" data-tab="followers">Followers <span class="fr-count" id="fr-c-followers">0</span></button>
+            <button class="fr-tab" data-tab="blocked">Blocked</button>
+          </div>
+
+          <div class="fr-list" id="fr-list"></div>
+
+          <div class="fr-groups-head">
+            <span class="dock-title">Group chats</span>
+            <button class="pill-btn" id="fr-new-group">+ New</button>
+          </div>
+          <div class="fr-list fr-groups" id="fr-groups"></div>
+        </div>
+
+        <div class="fr-main glass liquid-glass">
+          <div class="fr-chat-head" id="fr-chat-head">
+            <div class="fr-chat-title" id="fr-chat-title">Select someone to chat</div>
+            <div class="fr-chat-actions" id="fr-chat-actions"></div>
+          </div>
+          <div class="fr-messages" id="fr-messages">
+            <p class="dim fr-empty">Follow someone to start a conversation. They appear as a friend once you follow each other.</p>
+          </div>
+          <div class="fr-reply-bar hidden" id="fr-reply-bar"></div>
+          <div class="msg-expiry-note beta-only">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6 3.2 1.9-.9 1.5L11 13.5V7h2v5.6z"/></svg>
+            <span>Messages are deleted after 3 days.</span>
+            <button type="button" class="note-link" data-open-rules>Chat rules</button>
+          </div>
+          <div class="fr-compose" id="fr-compose">
+            <input id="fr-input" placeholder="Message" maxlength="500" disabled>
+            <button class="pill-btn primary" id="fr-send" disabled>Send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="fr-invites" id="fr-invites"></div>
+    </section>
+
+    <!-- SERVERS -->
+    <section class="view" id="view-servers">
+      <div class="view-header">
+        <h1>Servers</h1>
+        <button class="pill-btn primary" id="srv-new">+ New server</button>
+      </div>
+
+      <p class="dim srv-intro">
+        A server here runs on this PC, using the RAM you give it. It is only up while
+        you are running it — close the launcher and it stops.
+        <b>Reaching it from the internet at your <code>.nebulahosting.co</code> address
+        isn't connected yet</b>; on your own network people can join at your local IP.
+      </p>
+
+      <div class="srv-grid" id="srv-list"></div>
+
+      <div class="srv-console glass liquid-glass hidden" id="srv-console">
+        <div class="srv-console-head">
+          <span class="dock-title" id="srv-console-title">Console</span>
+          <div class="srv-console-actions">
+            <button class="pill-btn" id="srv-console-close">Close</button>
+          </div>
+        </div>
+        <div class="srv-log" id="srv-log"></div>
+        <div class="srv-cmd-row">
+          <input id="srv-cmd" placeholder="Type a server command, e.g. say hello" spellcheck="false">
+          <button class="pill-btn" id="srv-cmd-send">Run</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SKINS -->
+    <section class="view" id="view-skins">
+      <div class="view-header"><h1>Skins</h1></div>
+
+      <div class="skins-layout">
+        <div class="skins-preview glass liquid-glass">
+          <canvas id="skins-canvas" class="skins-canvas"></canvas>
+          <div class="skins-preview-controls">
+            <label class="toggle-inline">
+              <label class="toggle"><input type="checkbox" id="skins-overlay" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+              <span>Outer layer</span>
+            </label>
+            <div class="model-toggle" id="view-toggle">
+              <button class="model-btn active" data-view="front">Front</button>
+              <button class="model-btn" data-view="back">Back</button>
+            </div>
+            <div class="model-toggle" id="model-toggle">
+              <button class="model-btn active" data-model="classic">Classic</button>
+              <button class="model-btn" data-model="slim">Slim</button>
+            </div>
+          </div>
+          <div class="skins-preview-name" id="skins-preview-name">No skin selected</div>
+          <div class="skins-preview-actions">
+            <button class="pill-btn primary" id="skin-apply-btn" disabled>Apply to my account</button>
+            <button class="pill-btn" id="skin-edit-btn" disabled>Edit</button>
+          </div>
+        </div>
+
+        <div class="skins-library glass liquid-glass">
+          <div class="skins-lib-head">
+            <span class="dock-title">Your library</span>
+            <div class="skins-lib-actions">
+              <button class="pill-btn" id="skin-import-btn">+ Upload PNG</button>
+              <button class="pill-btn" id="skin-new-btn">✎ New skin</button>
+            </div>
+          </div>
+          <div class="skins-grid" id="skins-grid"></div>
+          <div class="skins-drop-hint" id="skins-drop-hint">Drop a 64×64 skin PNG anywhere here</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SKIN EDITOR -->
+    <div id="skin-editor" class="skin-editor hidden">
+      <div class="se-card glass liquid-glass">
+        <div class="se-head">
+          <span class="se-title">Skin editor</span>
+          <input id="se-name" class="se-name" placeholder="Skin name">
+          <button class="se-close" id="se-close">✕</button>
+        </div>
+        <div class="se-body se-body-3d">
+          <div class="se-tools">
+            <button class="se-tool active" data-tool="pencil" title="Pencil (B)">✏</button>
+            <button class="se-tool" data-tool="eraser" title="Eraser (E)">◻</button>
+            <button class="se-tool" data-tool="picker" title="Pick colour (I)">⊙</button>
+            <button class="se-tool" data-tool="fill" title="Fill (G)">▩</button>
+            <div class="se-tool-sep"></div>
+            <button class="se-tool" id="se-undo" title="Undo (Ctrl+Z)">↶</button>
+            <button class="se-tool" id="se-redo" title="Redo (Ctrl+Y)">↷</button>
+            <div class="se-tool-sep"></div>
+            <button class="se-tool" id="se-grid-toggle" title="Toggle grid">#</button>
+          </div>
+          <div class="se-stage">
+            <div class="se-mode" id="se-mode">
+              <button class="se-mode-btn active" data-mode="paint">✎ Paint</button>
+              <button class="se-mode-btn" data-mode="rotate">⟲ Rotate</button>
+            </div>
+            <canvas id="se-model" class="se-model"></canvas>
+            <div class="se-stage-hint">Right-drag to turn at any time</div>
+          </div>
+          <div class="se-side">
+            <div class="se-wheel-wrap">
+              <canvas id="se-wheel" class="se-wheel" width="180" height="180"></canvas>
+              <canvas id="se-sv" class="se-sv" width="86" height="86"></canvas>
+              <div class="se-hex-chip" id="se-hex-chip">
+                <input id="se-hex" value="#8B5CF6" spellcheck="false" maxlength="7">
+              </div>
+            </div>
+            <div class="se-swatches" id="se-swatches"></div>
+
+            <div class="se-layer-toggle" id="se-layer-toggle">
+              <button class="se-layer-btn active" data-layer="inner">Body</button>
+              <button class="se-layer-btn" data-layer="outer">Outer layer</button>
+            </div>
+
+            <!-- Click a part to work on just that piece; the rest is masked
+                 off so you can't paint into a neighbouring region by
+                 accident, and the preview isolates it too. -->
+            <div class="se-parts" id="se-parts">
+              <button class="se-part se-part-head" data-part="head" title="Head"></button>
+              <div class="se-part-row">
+                <button class="se-part se-part-arm" data-part="armR" title="Right arm"></button>
+                <button class="se-part se-part-body" data-part="body" title="Body"></button>
+                <button class="se-part se-part-arm" data-part="armL" title="Left arm"></button>
+              </div>
+              <div class="se-part-row">
+                <button class="se-part se-part-leg" data-part="legR" title="Right leg"></button>
+                <button class="se-part se-part-leg" data-part="legL" title="Left leg"></button>
+              </div>
+              <button class="se-part-all active" data-part="all">Whole skin</button>
+            </div>
+
+            <div class="se-sheet-wrap">
+              <canvas id="se-canvas" class="se-canvas" width="64" height="64"></canvas>
+              <canvas id="se-grid" class="se-grid"></canvas>
+            </div>
+            <div class="se-hint">Texture sheet — paintable too</div>
+          </div>
+        </div>
+        <div class="se-foot">
+          <span class="se-part-label" id="se-part-label">&nbsp;</span>
+          <div class="se-foot-actions">
+            <button class="pill-btn" id="se-cancel">Cancel</button>
+            <button class="pill-btn primary" id="se-save">Save to library</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CUSTOMIZE -->
+    <section class="view" id="view-customize">
+      <div class="view-header"><h1>Customize</h1></div>
+      <p class="dim">Pick a vibe. Everything saves automatically.</p>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Background</h3>
+        <div id="bg-preset-grid" class="bg-preset-grid"></div>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Monitor background</h3>
+        <p class="hint" style="margin:0 0 10px;opacity:.75">Wallpaper for the Game Monitor window. Sync uses your launcher background.</p>
+        <div class="setting-toggle-row" style="margin-bottom:10px;">
+          <span>Sync with launcher background</span>
+          <label class="toggle"><input type="checkbox" id="mon-bg-sync" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div id="mon-bg-preset-grid" class="bg-preset-grid"></div>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Accent color</h3>
+        <div id="accent-row" class="accent-row"></div>
+      </div>
+
+      <div class="settings-group glass liquid-glass beta-only" id="launch-style-group">
+        <h3>Launch buttons</h3>
+        <p class="dim" style="margin-bottom:10px;">Choose how the Launch button and the buttons under it look. Color buttons use your accent color.</p>
+        <div class="launch-style-options">
+          <div class="ls-option" role="button" tabindex="0" data-launch-style="purple">
+            <span class="ls-name">Color buttons<span class="ls-tag">Default</span></span>
+            <div class="ls-preview"></div>
+          </div>
+          <div class="ls-option" role="button" tabindex="0" data-launch-style="glass">
+            <span class="ls-name">Liquid glass buttons</span>
+            <div class="ls-preview"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Liquid glass</h3>
+        <p class="hint" style="margin:0 0 10px;opacity:.75">Same dials as liqui.design — refraction lens (not a blur overlay). Chromium only; frost fallback elsewhere.</p>
+        <label class="slider-row">
+          <span>Refraction <b id="lq-refraction-label">250</b> px</span>
+          <input type="range" id="lq-refraction" min="0" max="250" value="250">
+        </label>
+        <label class="slider-row">
+          <span>Bezel <b id="lq-bezel-label">19</b> px</span>
+          <input type="range" id="lq-bezel" min="4" max="60" value="19">
+        </label>
+        <label class="slider-row">
+          <span>Frost <b id="lq-frost-label">0.13</b></span>
+          <input type="range" id="lq-frost" min="0" max="100" value="13">
+        </label>
+        <label class="slider-row">
+          <span>Blur <b id="lq-blur-label">1</b> px</span>
+          <input type="range" id="lq-blur" min="0" max="20" step="0.5" value="1">
+        </label>
+        <label class="slider-row">
+          <span>Specular <b id="lq-specular-label">0.25</b></span>
+          <input type="range" id="lq-specular" min="0" max="100" value="25">
+        </label>
+        <label class="slider-row">
+          <span>Dispersion <b id="lq-dispersion-label">0</b> <span class="hint">(3× cost)</span></span>
+          <input type="range" id="lq-dispersion" min="0" max="40" value="0">
+        </label>
+        <label class="slider-row">
+          <span>Profile</span>
+          <select id="lq-profile" style="flex:1;max-width:180px">
+            <option value="squircle" selected>Squircle (physical)</option>
+            <option value="convex">Convex</option>
+            <option value="rim">Rim (cheap)</option>
+          </select>
+        </label>
+        <label class="slider-row">
+          <span>Material</span>
+          <select id="lq-material" style="flex:1;max-width:180px">
+            <option value="auto" selected>Auto (refract → frost)</option>
+            <option value="frost">Frost only</option>
+            <option value="clear">Clear</option>
+          </select>
+        </label>
+        <label class="slider-row">
+          <span>Shell opacity <b id="glass-alpha-label">34</b>%</span>
+          <input type="range" id="glass-alpha" min="20" max="90" value="34">
+        </label>
+        <label class="slider-row">
+          <span>Background dim <b id="scene-dim-label">9</b>%</span>
+          <input type="range" id="scene-dim" min="0" max="85" value="9">
+        </label>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button type="button" class="pill-btn" id="lq-reset">Reset liquid glass</button>
+        </div>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Motion &amp; space feel</h3>
+        <div class="setting-toggle-row">
+          <span>Animations<span class="hint">Floating character, glows, transitions</span></span>
+          <label class="toggle"><input type="checkbox" id="anim-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div class="setting-toggle-row">
+          <span>Shooting stars &amp; particles<span class="hint">Ambient starfield effects behind the glass</span></span>
+          <label class="toggle"><input type="checkbox" id="particles-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div class="setting-toggle-row">
+          <span>Depth parallax<span class="hint">The world shifts gently as you move your mouse</span></span>
+          <label class="toggle"><input type="checkbox" id="parallax-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div class="setting-toggle-row">
+          <span>Stardust cursor trail<span class="hint">Glowing motes follow your cursor</span></span>
+          <label class="toggle"><input type="checkbox" id="trail-toggle"><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div class="setting-toggle-row">
+          <span>Lightweight graphics<span class="hint">Drops the glass blur and the nebula. Turns itself on automatically if the launcher can&#39;t hold a smooth frame rate.</span></span>
+          <label class="toggle"><input type="checkbox" id="lowgfx-toggle"><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings">
+      <div class="view-header"><h1>Settings</h1></div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Accounts</h3>
+        <div id="settings-account-list" class="account-list"></div>
+        <button id="settings-add-account" class="pill-btn">+ Add account</button>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Auto-install mods</h3>
+        <p class="dim" style="margin-bottom:10px;">Any .jar here gets copied into every new Fabric/Quilt instance automatically.</p>
+        <button id="open-default-mods" class="pill-btn">Open folder</button>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Friends</h3>
+        <label class="toggle-inline">
+          <label class="toggle"><input type="checkbox" id="set-notify-follow" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          <span>Notify me when someone follows me</span>
+        </label>
+        <label class="toggle-inline">
+          <label class="toggle"><input type="checkbox" id="set-notify-followback" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          <span>Notify me when someone follows me back</span>
+        </label>
+        <label class="toggle-inline">
+          <label class="toggle"><input type="checkbox" id="set-notify-message" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          <span>Notify me about messages and invites</span>
+        </label>
+        <label class="toggle-inline">
+          <label class="toggle"><input type="checkbox" id="set-show-online" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          <span>Show my online status to friends</span>
+        </label>
+        <label class="toggle-inline beta-only">
+          <label class="toggle"><input type="checkbox" id="set-private-profile"><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          <span>Private profile: hide who follows you and who you follow</span>
+        </label>
+        <div class="fr-conn-line">
+          <span class="fr-dot" id="set-friends-dot"></span>
+          <span id="set-friends-state">Checking…</span>
+          <button class="pill-btn" id="set-friends-retry">Reconnect</button>
+        </div>
+      </div>
+
+      <div class="settings-group glass liquid-glass">
+        <h3>Discord</h3>
+        <div class="setting-toggle-row">
+          <span>Show on Discord<span class="hint">Displays SolarClient on your profile</span></span>
+          <label class="toggle"><input type="checkbox" id="discord-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div class="setting-toggle-row">
+          <span>Show version &amp; instance<span class="hint">Off shows only "Java Edition"</span></span>
+          <label class="toggle"><input type="checkbox" id="discord-details-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
+        <div class="discord-preview" id="discord-preview">
+          <div class="dp-art"><img id="dp-art-img" src="img/nebula.png?v=3" alt=""><img class="dp-badge-img" id="dp-badge-img" src="img/nebula.png?v=3" alt=""></div>
+          <div class="dp-text">
+            <div class="dp-name">SolarClient</div>
+            <div class="dp-line" id="dp-details">In the launcher</div>
+            <div class="dp-line dim" id="dp-state">Browsing instances</div>
+          </div>
+          <div class="dp-status" id="dp-status">Connecting…</div>
+        </div>
+      </div>
+    
+      <div class="settings-group glass liquid-glass">
+        <h3>About</h3>
+        <div class="setting-toggle-row">
+          <span>Version<span class="hint">The build of SolarClient you are running right now</span></span>
+          <span class="about-version" id="about-version">—</span>
+        </div>
+        <div class="setting-toggle-row">
+          <span>Electron<span class="hint">Runtime this build was packaged against</span></span>
+          <span class="about-version dim" id="about-electron">—</span>
+        </div>
+      </div>
+
+      <div class="settings-group glass liquid-glass beta-only">
+        <h3>Legal</h3>
+        <p class="dim" style="margin-bottom:10px;">Using SolarClient means you agree to these. Last updated <span id="legal-updated"></span>.</p>
+        <div class="legal-btns">
+          <button type="button" class="pill-btn" id="open-terms">Terms of Service</button>
+          <button type="button" class="pill-btn" id="open-privacy">Privacy Policy</button>
+          <button type="button" class="pill-btn" id="open-rules">Rules</button>
+        </div>
+      </div>
+</section>
+  </div>
+  <aside class="sidebar sidebar-right glass liquid-glass" id="sidebar-right" aria-label="Communities">
+    <div class="rail-account" id="rail-account"></div>
+    <button type="button" class="rail-plus" id="community-add" title="Make a Minecraft community" aria-label="Make a Minecraft community"><svg viewBox="0 0 24 24"><path d="M11 4h2v16h-2zM4 11h16v2H4z"/></svg></button>
+    <div class="rail-communities" id="rail-communities"></div>
+  </aside>
+</div>
+
+<!-- full-screen launch overlay — liquid-glass card, no spinning portal -->
+<div id="launch-overlay" class="launch-overlay">
+  <div class="overlay-card glass liquid-glass" id="overlay-card">
+    <img class="overlay-brand" src="assets/solar-client-logo.png" alt="" draggable="false">
+    <div class="overlay-title" id="overlay-title">Launching…</div>
+    <div class="overlay-label" id="overlay-label">Preparing…</div>
+    <div class="overlay-track"><div class="overlay-fill" id="overlay-fill"></div></div>
+    <div class="overlay-meta"><span id="overlay-speed"></span><b id="overlay-pct"></b></div>
+    <div class="overlay-tip" id="overlay-tip"></div>
+    <button class="overlay-hide" id="overlay-hide">Hide</button>
+  </div>
+</div>
+
+<!-- command palette (Ctrl/Cmd+K) -->
+<div id="palette" class="palette hidden">
+  <div class="palette-box glass liquid-glass">
+    <input id="palette-input" placeholder="Search…">
+    <div id="palette-list" class="palette-list"></div>
+    <div class="palette-foot">↑↓  Enter  Esc</div>
+  </div>
+</div>
+
+<!-- reusable themed confirm dialog -->
+<div id="confirm-modal" class="confirm-modal hidden">
+  <div class="confirm-panel glass liquid-glass">
+    <div class="confirm-title" id="confirm-title">Are you sure?</div>
+    <div class="confirm-message" id="confirm-message"></div>
+    <div class="confirm-actions">
+      <button id="confirm-cancel" class="pill-btn">Cancel</button>
+      <button id="confirm-ok" class="pill-btn danger">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Terms of Service / Privacy Policy viewer and agreement -->
+<div id="legal-modal" class="confirm-modal legal-modal hidden">
+  <div class="confirm-panel legal-panel glass liquid-glass">
+    <div class="legal-tabs">
+      <button type="button" class="legal-tab" data-doc="terms">Terms of Service</button>
+      <button type="button" class="legal-tab" data-doc="privacy">Privacy Policy</button>
+      <button type="button" class="legal-tab" data-doc="rules">Rules</button>
+    </div>
+    <div class="legal-intro hidden" id="legal-intro">Please read and accept our Terms of Service and Privacy Policy to keep using SolarClient.</div>
+    <div class="legal-updated" id="legal-modal-updated"></div>
+    <div class="legal-body" id="legal-body"></div>
+    <label class="legal-agree-row hidden" id="legal-agree-row">
+      <input type="checkbox" id="legal-agree-box">
+      <span>I have read and agree to the Terms of Service and the Privacy Policy.</span>
+    </label>
+    <div class="confirm-actions">
+      <button type="button" id="legal-quit" class="pill-btn hidden">Quit SolarClient</button>
+      <button type="button" id="legal-ok" class="pill-btn primary">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Moderation: only SHARK_TG and Figgy_1234. The server checks every request. -->
+<div id="mod-modal" class="confirm-modal mod-modal hidden">
+  <div class="mod-panel glass liquid-glass">
+    <div class="mod-head">
+      <div class="mod-shield"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.9-4.9 1.4 1.4-6.3 6.3z"/></svg></div>
+      <div class="mod-titles">
+        <div class="mod-title">Moderation</div>
+        <div class="mod-sub" id="mod-sub">Only SHARK_TG and Figgy_1234 can see this.</div>
+      </div>
+      <button type="button" class="pill-btn mod-refresh" id="mod-refresh" title="Refresh">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+      </button>
+      <button type="button" class="live-chat-x" id="mod-close" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div class="mod-tabs">
+      <button type="button" class="mod-tab active" data-tab="flags">Flagged <span class="mod-count" id="mod-flags-n">0</span></button>
+      <button type="button" class="mod-tab" data-tab="reports">Reports <span class="mod-count" id="mod-reports-n">0</span></button>
+      <button type="button" class="mod-tab" data-tab="bans">Bans <span class="mod-count" id="mod-bans-n">0</span></button>
+      <button type="button" class="mod-tab" data-tab="mutes">Mutes <span class="mod-count" id="mod-mutes-n">0</span></button>
+      <button type="button" class="mod-tab" data-tab="discord">Discord log</button>
+    </div>
+
+    <div class="mod-pane" data-pane="flags">
+      <div class="mod-toolbar">
+        <input id="mod-flag-search" placeholder="Search by player, place or message" autocomplete="off" spellcheck="false">
+        <button type="button" class="pill-btn danger mod-small" id="mod-clear-flags">Delete all</button>
+      </div>
+      <div class="mod-filter" id="mod-flag-filter">
+        <button type="button" data-f="all" class="on">All <span id="mod-ff-all">0</span></button>
+        <button type="button" data-f="hate">Hate and slurs <span id="mod-ff-hate">0</span></button>
+        <button type="button" data-f="swear">Swearing in live chat <span id="mod-ff-swear">0</span></button>
+      </div>
+      <div class="mod-list" id="mod-flag-list"></div>
+    </div>
+
+    <div class="mod-pane hidden" data-pane="reports">
+      <div class="mod-toolbar">
+        <input id="mod-report-search" placeholder="Search by player, reason or details" autocomplete="off" spellcheck="false">
+        <button type="button" class="pill-btn danger mod-small" id="mod-clear-reports">Delete all</button>
+      </div>
+      <div class="mod-list" id="mod-report-list"></div>
+    </div>
+
+    <div class="mod-pane hidden" data-pane="mutes">
+      <form class="mod-ban-form" id="mod-mute-form" autocomplete="off">
+        <div class="mod-field">
+          <label for="mod-mute-user">Minecraft username</label>
+          <input id="mod-mute-user" maxlength="16" placeholder="Username" spellcheck="false">
+        </div>
+        <div class="mod-field">
+          <label for="mod-mute-dur">How long</label>
+          <input id="mod-mute-dur" maxlength="24" placeholder="10m, 1h, 1d, 7d or perm" spellcheck="false">
+        </div>
+        <div class="mod-quick" id="mod-mute-quick">
+          <button type="button" data-d="10m">10 min</button>
+          <button type="button" data-d="1h">1 hour</button>
+          <button type="button" data-d="1d">1 day</button>
+          <button type="button" data-d="7d">7 days</button>
+          <button type="button" data-d="1mo">1 month</button>
+          <button type="button" data-d="perm" class="perm">Permanent</button>
+        </div>
+        <div class="mod-field full">
+          <label for="mod-mute-reason">Reason <span class="dim">(the player sees this, and it goes to Discord)</span></label>
+          <textarea id="mod-mute-reason" maxlength="300" rows="2" placeholder="Why are they being muted?"></textarea>
+        </div>
+        <div class="mod-ban-foot">
+          <div class="mod-preview" id="mod-mute-preview">A mute stops them sending messages in live chat. They can still use the rest of the launcher.</div>
+          <button type="submit" class="pill-btn warn" id="mod-mute-go">Mute player</button>
+        </div>
+      </form>
+      <div class="mod-section-label">Muted in live chat</div>
+      <div class="mod-list" id="mod-mute-list"></div>
+    </div>
+
+    <div class="mod-pane hidden" data-pane="bans">
+      <form class="mod-ban-form" id="mod-ban-form" autocomplete="off">
+        <div class="mod-field">
+          <label for="mod-ban-user">Minecraft username</label>
+          <input id="mod-ban-user" maxlength="16" placeholder="Username" spellcheck="false">
+        </div>
+        <div class="mod-field">
+          <label for="mod-ban-dur">How long</label>
+          <input id="mod-ban-dur" maxlength="24" placeholder="30m, 12h, 7d, 1mo, 1y or perm" spellcheck="false">
+        </div>
+        <div class="mod-quick" id="mod-ban-quick">
+          <button type="button" data-d="1h">1 hour</button>
+          <button type="button" data-d="1d">1 day</button>
+          <button type="button" data-d="7d">7 days</button>
+          <button type="button" data-d="1mo">1 month</button>
+          <button type="button" data-d="1y">1 year</button>
+          <button type="button" data-d="perm" class="perm">Permanent</button>
+        </div>
+        <div class="mod-field full">
+          <label for="mod-ban-reason">Reason <span class="dim">(the player sees this, and it goes to Discord)</span></label>
+          <textarea id="mod-ban-reason" maxlength="500" rows="2" placeholder="Why are they being banned?"></textarea>
+        </div>
+        <div class="mod-ban-foot">
+          <div class="mod-preview" id="mod-ban-preview">m = minutes, h = hours, d = days, w = weeks, mo = months, y or yr = years. Capitals don't matter.</div>
+          <button type="submit" class="pill-btn danger" id="mod-ban-go">Ban player</button>
+        </div>
+      </form>
+      <div class="mod-section-label">Active bans</div>
+      <div class="mod-list" id="mod-ban-list"></div>
+    </div>
+
+    <div class="mod-pane hidden" data-pane="discord">
+      <div class="mod-discord">
+        <div class="mod-discord-status" id="mod-discord-status"></div>
+        <p>Every ban, unban, mute and unmute is posted to the staff Discord channel: the player, how long, when it ends, the reason and who did it.</p>
+        <p class="dim">The webhook is stored on the SolarClient server only. It is never in the launcher, so nobody can pull it out of the app.</p>
+        <button type="button" class="pill-btn primary" id="mod-discord-test">Send a test message</button>
+        <div class="mod-discord-result" id="mod-discord-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- A file attached to a report, opened from the mod panel. -->
+<div id="mod-viewer" class="confirm-modal mod-viewer hidden">
+  <div class="mod-viewer-box">
+    <button type="button" class="live-chat-x mod-viewer-x" id="mod-viewer-close" title="Close" aria-label="Close">&times;</button>
+    <div class="mod-viewer-media" id="mod-viewer-media"></div>
+  </div>
+</div>
+
+<!-- Report a player. -->
+<div id="report-modal" class="confirm-modal report-modal hidden" role="dialog" aria-modal="true" aria-labelledby="report-title">
+  <form class="report-panel glass liquid-glass" id="report-form" autocomplete="off">
+    <div class="report-head">
+      <img class="report-face" id="report-face" alt="">
+      <div class="report-titles">
+        <div class="report-title" id="report-title">Report player</div>
+        <div class="report-sub">Only the SolarClient team sees reports. The player isn't told who reported them.</div>
+      </div>
+      <button type="button" class="live-chat-x" id="report-close" title="Close" aria-label="Close">&times;</button>
+    </div>
+    <div class="report-body">
+      <div class="report-label">What happened? <span class="req">Required</span></div>
+      <div class="report-reasons" id="report-reasons" role="radiogroup"></div>
+      <div class="report-context hidden" id="report-context">
+        <div class="report-context-label">Message you're reporting</div>
+        <div class="report-context-text" id="report-context-text"></div>
+      </div>
+      <label class="report-label" for="report-details">Tell us more <span class="req">Required</span></label>
+      <div class="report-textwrap">
+        <textarea id="report-details" maxlength="1000" rows="3" placeholder="What did they say or do, and where? The more detail, the faster we can act."></textarea>
+        <span class="report-count" id="report-count">0 / 1000</span>
+      </div>
+      <div class="report-label">Screenshots or clips <span class="opt">Optional</span></div>
+      <div class="report-drop" id="report-drop" tabindex="0">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13v6H5v-6H3v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6h-2zm-6-.83 2.59-2.58L17 11l-5 5-5-5 1.41-1.41L11 12.17V3h2v9.17z" transform="rotate(180 12 12)"/></svg>
+        <div><b>Add images or videos</b><span>Drop them here or click. Up to 4 files, 25 MB each. PNG, JPG, GIF, WEBP, MP4, MOV or WEBM.</span></div>
+        <input type="file" id="report-files" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime,video/webm" multiple hidden>
+      </div>
+      <div class="report-files" id="report-file-list"></div>
+      <p class="report-fine">False reports can get you muted or banned. See the <button type="button" class="note-link" data-open-rules>Rules</button>.</p>
+    </div>
+    <div class="report-foot">
+      <div class="report-status" id="report-status"></div>
+      <button type="button" class="pill-btn" id="report-cancel">Cancel</button>
+      <button type="submit" class="pill-btn danger" id="report-go">Send report</button>
+    </div>
+  </form>
+</div>
+
+<!-- Banned: covers the whole launcher until the ban ends. -->
+<div id="ban-screen" class="confirm-modal ban-screen hidden" role="alertdialog" aria-modal="true" aria-labelledby="ban-title">
+  <div class="ban-drag"></div>
+  <div class="ban-card glass liquid-glass">
+    <div class="ban-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM4 12a8 8 0 0 1 12.9-6.3L5.7 16.9A7.96 7.96 0 0 1 4 12zm8 8a7.96 7.96 0 0 1-4.9-1.7L18.3 7.1A8 8 0 0 1 12 20z"/></svg></div>
+    <div class="ban-title" id="ban-title">You're banned from SolarClient</div>
+    <div class="ban-who" id="ban-who"></div>
+    <div class="ban-grid">
+      <div class="ban-stat"><span>Length</span><b id="ban-length"></b></div>
+      <div class="ban-stat"><span>Ends</span><b id="ban-ends"></b></div>
+      <div class="ban-stat"><span>Time left</span><b id="ban-left"></b></div>
+    </div>
+    <div class="ban-reason-label">Reason</div>
+    <div class="ban-reason" id="ban-reason"></div>
+    <p class="ban-note" id="ban-note">You can't use the launcher on this account or on this computer while the ban is active. If you think this is a mistake, you can appeal in our Discord.</p>
+    <div class="ban-actions">
+      <button type="button" class="pill-btn" id="ban-rules">Read the rules</button>
+      <button type="button" class="pill-btn beta-only" id="ban-terms">Terms of Service</button>
+      <button type="button" class="pill-btn beta-only" id="ban-privacy">Privacy Policy</button>
+      <button type="button" class="pill-btn" id="ban-appeal">Appeal on Discord</button>
+      <button type="button" class="pill-btn primary" id="ban-close">Close SolarClient</button>
+    </div>
+    <div class="ban-id" id="ban-id"></div>
+  </div>
+</div>
+
+<!-- crash auto-fix dialog -->
+<div id="crash-modal" class="confirm-modal hidden">
+  <div class="confirm-panel crash-panel glass liquid-glass">
+    <div class="confirm-title" id="crash-title">Your game crashed</div>
+    <div class="confirm-message" id="crash-summary"></div>
+    <ul id="crash-fix-list" class="crash-fix-list"></ul>
+    <div id="crash-status" class="crash-status hidden"></div>
+    <div class="confirm-actions">
+      <button id="crash-report" class="pill-btn hidden">Crash report</button>
+      <button id="crash-dismiss" class="pill-btn">Not now</button>
+      <button id="crash-apply" class="pill-btn primary">Apply fixes</button>
+    </div>
+  </div>
+</div>
+
+<!-- background crop tool -->
+<div id="crop-modal" class="crop-modal hidden">
+  <div class="crop-panel glass liquid-glass">
+    <div class="crop-title">Position your photo</div>
+    <p class="dim" style="margin:0 0 12px;">Drag to position your photo.</p>
+    <div id="crop-box" class="crop-box"></div>
+    <div class="crop-actions">
+      <button id="crop-cancel" class="pill-btn">Cancel</button>
+      <button id="crop-save" class="pill-btn primary">Save position</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" class="toast-container"></div>
+<div id="download-bar-container" class="download-bar-container"></div>
+
+<!-- Who's on the launcher right now — opened from the online counter -->
+<div class="online-pop liquid-glass hidden" id="online-pop" data-lq-blur="9">
+  <div class="op-head">
+    <div class="op-titles">
+      <span class="op-title">On SolarClient now</span>
+      <span class="op-sub" id="online-pop-sub">Loading…</span>
+    </div>
+    <button type="button" class="live-chat-x" id="online-pop-close" title="Close" aria-label="Close">&times;</button>
+  </div>
+  <div class="op-search-wrap"><input class="op-search" id="online-pop-search" placeholder="Search players" maxlength="16"></div>
+  <div class="op-list" id="online-pop-list"></div>
+</div>
+
+<!-- Live chat — one room for everyone signed in to the launcher -->
+<div class="live-chat liquid-glass hidden" id="live-chat" data-lq-blur="9">
+  <div class="live-chat-head" id="live-chat-head" title="Drag to move">
+    <div class="live-chat-titles">
+      <span class="live-chat-title">Live chat</span>
+      <span class="live-chat-sub" id="live-chat-sub">Connecting…</span>
+    </div>
+    <div class="live-chat-viewers hidden" id="live-chat-viewers">
+      <span class="lcv-live"><span class="lcv-dot"></span>LIVE</span>
+      <span class="lcv-faces" id="live-chat-faces"></span>
+      <span class="lcv-count"><b id="live-chat-viewers-n">0</b> in chat</span>
+    </div>
+    <button type="button" class="live-chat-x" id="live-chat-close" title="Close" aria-label="Close">&times;</button>
+  </div>
+  <div class="msg-expiry-note lc-note beta-only">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6 3.2 1.9-.9 1.5L11 13.5V7h2v5.6z"/></svg>
+    <span>Live chat messages disappear after 1 hour.</span>
+    <button type="button" class="note-link" data-open-rules>Rules</button>
+  </div>
+  <div class="live-chat-list" id="live-chat-list"></div>
+  <div class="live-chat-compose">
+    <input id="live-chat-input" placeholder="Say something to everyone" maxlength="300" disabled>
+    <button class="pill-btn primary" id="live-chat-send" disabled>Send</button>
+  </div>
+  <span class="lc-rz nw" data-rz="nw" aria-hidden="true"></span>
+  <span class="lc-rz ne" data-rz="ne" aria-hidden="true"></span>
+  <span class="lc-rz sw" data-rz="sw" aria-hidden="true"></span>
+  <span class="lc-rz se" data-rz="se" aria-hidden="true"></span>
+</div>
+
+<!-- Update panel — beta / optional / mandatory / switch-to-stable / restart -->
+<div class="update-modal" id="update-modal">
+  <div class="update-card glass liquid-glass" id="update-card">
+    <img class="update-brand" src="assets/solar-client-logo.png" alt="Solar Client" draggable="false">
+    <div class="update-head">
+      <div class="update-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="update-title" id="update-title">Update available</div>
+        <div class="update-badge-row">
+          <span class="update-channel-badge" id="update-channel-badge">stable</span>
+          <span class="update-policy-badge hidden" id="update-policy-badge">optional</span>
+        </div>
+      </div>
+    </div>
+    <div class="update-versions" id="update-versions">
+      <span id="update-from">—</span>
+      <span class="update-arrow">→</span>
+      <span id="update-to">—</span>
+    </div>
+    <div class="update-sub" id="update-sub">A new SolarClient build is ready.</div>
+    <div class="update-notes-wrap hidden" id="update-notes-wrap">
+      <div class="update-notes-title">What's in this update</div>
+      <ul class="update-notes" id="update-notes"></ul>
+    </div>
+    <div class="update-progress-wrap hidden" id="update-progress-wrap">
+      <div class="update-progress-row">
+        <span class="update-progress-label" id="update-progress-label">Downloading…</span>
+        <b class="update-progress-pct" id="update-progress-pct">0%</b>
+      </div>
+      <div class="update-progress-track"><div class="update-progress-fill" id="update-progress-fill"></div></div>
+      <div class="update-progress-stats">
+        <span id="update-progress-bytes"></span>
+        <span id="update-progress-eta"></span>
+      </div>
+    </div>
+    <div class="update-error hidden" id="update-error"></div>
+    <div class="update-actions">
+      <button class="pill-btn primary" id="update-primary">Download update</button>
+      <button class="pill-btn" id="update-secondary">Not now</button>
+    </div>
+    <div class="update-foot" id="update-foot">Optional updates can wait. Mandatory ones must be installed to keep using the launcher.</div>
+  </div>
+</div>
+
+<script>
+/* Minimal bg table so applyTheme() works before backgrounds.js loads. */
+window.NEBULA_BACKGROUNDS = {
+  nebula: { name: 'Solar', kind: 'nebula' },
+  void: { name: 'Pure Void', kind: 'void' },
+};
+</script>
+<script src="liquid-glass-engine.js"></script>
+<script src="legal.js"></script>
+<script src="renderer.js"></script>
+<!-- backgrounds.js / skin2d.js / skin3d.js load after first paint -->
+<!-- What's New modal -->
+<div class="whatsnew-modal" id="whatsnew-modal">
+  <div class="whatsnew-card">
+    <div class="whatsnew-head">
+      <div class="update-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+      </div>
+      <div class="whatsnew-title">What's New in <span id="whatsnew-version"></span></div>
+    </div>
+    <div class="whatsnew-content" id="whatsnew-content">Loading changelog...</div>
+    <div class="whatsnew-actions">
+      <button class="pill-btn primary" id="whatsnew-close">Awesome!</button>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>
+
+
+

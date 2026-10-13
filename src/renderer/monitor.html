@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Game Monitor — SolarClient</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-bg-kind="nebula">
+
+<div class="bg-stack">
+  <div class="bg-nebula">
+    <div class="blob blob-1" style="width:380px;height:380px;"></div>
+    <div class="blob blob-2" style="width:320px;height:320px;"></div>
+  </div>
+  <canvas id="starfield"></canvas>
+</div>
+
+<div class="titlebar">
+  <div class="titlebar-drag">
+    <img class="titlebar-brand" src="assets/solar-client-logo.png" alt="Solar Client" draggable="false">
+    <span class="titlebar-title mon-titlebar-label">Monitor</span>
+  </div>
+  <div class="window-controls">
+    <button id="win-min" title="Minimize" aria-label="Minimize"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M2.5 7h9"/><path class="wc-i" d="M2.5 7h9"/></svg></button>
+    <button id="win-max" title="Maximize" aria-label="Maximize"><svg class="wc-ico" viewBox="0 0 14 14"><rect class="wc-o" x="2.5" y="2.5" width="9" height="9" rx="1.5"/><rect class="wc-i" x="2.5" y="2.5" width="9" height="9" rx="1.5"/></svg></button>
+    <button id="win-close" title="Close" aria-label="Close" class="close-btn"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M3 3l8 8M11 3l-8 8"/><path class="wc-i" d="M3 3l8 8M11 3l-8 8"/></svg></button>
+  </div>
+</div>
+
+<div class="mon-app">
+  <div class="mon-header glass liquid-glass">
+    <div class="mon-status-dot" id="mon-dot"></div>
+    <div>
+      <div class="mon-title" id="mon-title">Instance</div>
+      <div class="mon-sub" id="mon-sub">—</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="mon-autoclose hidden" id="mon-autoclose">
+      <span id="mon-autoclose-text">Closing in 3s…</span>
+      <button class="pill-btn mini" id="mon-keep-open">Keep window open</button>
+    </div>
+    <button class="mon-stop" id="mon-stop">■ Stop game</button>
+  </div>
+
+  <div class="mon-cards">
+    <div class="mon-card glass liquid-glass">
+      <div class="mc-label">Status</div>
+      <div class="mc-value" id="mon-status">Starting</div>
+      <div class="mc-value" style="font-size:13px; margin-top:6px;" id="mon-uptime">Uptime 0:00</div>
+    </div>
+    <div class="mon-card glass liquid-glass">
+      <div class="mc-label">CPU (game process)</div>
+      <div class="mc-value" id="mon-cpu">—<small>%</small></div>
+      <canvas id="spark-cpu"></canvas>
+    </div>
+    <div class="mon-card glass liquid-glass">
+      <div class="mc-label">Memory</div>
+      <div class="mc-value" id="mon-mem">—<small>MB</small></div>
+      <canvas id="spark-mem"></canvas>
+    </div>
+  </div>
+
+  <div class="mon-progress glass liquid-glass hidden" id="mon-progress">
+    <div class="launch-progress-head">
+      <span class="launch-progress-label" id="mon-progress-label">Preparing…</span>
+      <span class="launch-progress-meta"><span id="mon-progress-speed"></span><b id="mon-progress-pct">0%</b></span>
+    </div>
+    <div class="launch-progress-track"><div class="launch-progress-fill" id="mon-progress-fill"></div></div>
+  </div>
+
+  <div class="mon-lower">
+    <div class="mon-console glass liquid-glass">
+      <div class="mon-console-bar">
+        <input id="mon-filter" placeholder="Filter log…">
+        <button class="pill-btn mini" id="mon-autoscroll">Autoscroll: ON</button>
+        <button class="pill-btn mini" id="mon-clear">Clear</button>
+      </div>
+      <div class="mon-console-body" id="mon-console"></div>
+    </div>
+  </div>
+</div>
+
+<script src="liquid-glass-engine.js"></script>
+<script>
+/* Minimal bg table so applyTheme()/monitor bg sync works before backgrounds.js. */
+window.NEBULA_BACKGROUNDS = window.NEBULA_BACKGROUNDS || {
+  nebula: { name: 'Solar', kind: 'nebula' },
+  void: { name: 'Pure Void', kind: 'void' },
+};
+</script>
+<script src="monitor.js"></script>
+<script>
+  if (window.SolarLiquidGlass) window.SolarLiquidGlass.init();
+  const s = document.createElement('script');
+  s.src = 'backgrounds.js';
+  s.onload = () => { try { applyMonitorBackground(); } catch { /* ignore */ } };
+  document.head.appendChild(s);
+</script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+{
+  "name": "solarclient",
+  "productName": "SolarClient",
+  "version": "3.22.80-beta.26",
+  "description": "SolarClient 3.22.80-beta.26 — a fast Minecraft launcher",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "node scripts/brand-dev.js && electron .",
+    "dist": "node scripts/dist-protected.js",
+    "dist:raw": "electron-builder",
+    "pack": "electron-builder --dir",
+    "brand": "node scripts/brand-dev.js",
+    "postinstall": "node scripts/brand-dev.js"
+  },
+  "author": {
+    "name": "SolarClient",
+    "email": "support@figgysmp.shop"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "electron-squirrel-startup": "^1.0.1",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.1.7",
+    "electron-winstaller": "^5.4.4",
+    "minecraft-launcher-core": "^3.18.2",
+    "minecraft-protocol": "^1.51.0",
+    "msmc": "^5.0.5",
+    "tar": "^7.4.3",
+    "ws": "^8.21.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SolarClient/SolarClient.git"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "javascript-obfuscator": "^4.2.2"
+  },
+  "build": {
+    "appId": "com.solarclient.launcher",
+    "productName": "SolarClient",
+    "publish": {
+      "provider": "github",
+      "owner": "sharktoothgaming56-maker",
+      "repo": "solarclientsite",
+      "releaseType": "release"
+    },
+    "directories": {
+      "output": "dist116"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "app-update.yml",
+      "scripts/solar-update-helper.ps1",
+      "scripts/solar-update-helper.cmd",
+      "scripts/solar-update-window.ps1",
+      "!backend/**/*",
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.md",
+      "!**/test/**",
+      "!**/tests/**",
+      "!**/__tests__/**",
+      "!**/docs/**",
+      "!**/example/**",
+      "!**/examples/**",
+      "!**/.github/**",
+      "!**/*.d.ts",
+      "!tools/rcedit-x64.exe",
+      "node_modules/electron-updater/**/*",
+      "node_modules/builder-util-runtime/**/*",
+      "node_modules/ws/**/*",
+      "build/icon.ico",
+      "build/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "resources"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "SolarClient",
+      "legalTrademarks": "SolarClient"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "icon": "build/icon.png",
+      "executableName": "solarclient",
+      "category": "Game",
+      "synopsis": "A fast Minecraft launcher",
+      "description": "SolarClient - a fast Minecraft launcher",
+      "maintainer": "SolarClient <support@figgysmp.shop>",
+      "vendor": "SolarClient",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "artifactName": "${productName}-${version}.${ext}",
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "oneClick": true,
+      "uninstallerIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "allowToChangeInstallationDirectory": false,
+      "installerHeaderIcon": "build/icon.ico",
+      "createStartMenuShortcut": true,
+      "perMachine": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "compression": "normal",
+    "asarUnpack": [
+      "node_modules/electron-updater/**/*",
+      "node_modules/electron-squirrel-startup/**/*"
+    ],
+    "rpm": {
+      "fpm": [
+        "--rpm-rpmbuild-define=_build_id_links none"
+      ]
+    }
+  },
+  "homepage": "https://figgysmp.shop"
+}
