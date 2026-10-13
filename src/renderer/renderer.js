@@ -5226,7 +5226,7 @@ function openReport(person) { reportApi?.open(person); }
   });
 })();
 
-// ---------- Moderation panel (SHARK_TG and Figgy_1234 only) ----------
+// ---------- Moderation panel (head mods + in-game admins) ----------
 // Purely a view: every action is a request the server checks against the
 // two mod accounts, so showing this to anyone else would get them nothing.
 (function wireModeration() {
@@ -5835,6 +5835,7 @@ function openReport(person) { reportApi?.open(person); }
   });
 
   window.nebula.onModEvent((m) => {
+    if (m.kind === 'access') { setAccess(!!m.isMod); return; }
     if (!isMod) return;
     if (m.kind === 'flag' && m.flag) {
       if (!data.flags.some(f => f.id === m.flag.id)) data.flags.unshift(m.flag);

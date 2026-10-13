@@ -860,6 +860,10 @@ class Friends extends EventEmitter {
         if (m.uuid) this.roleCache.set(String(m.uuid).replace(/-/g, ''), m.role || 'member');
         if (this.self && String(m.uuid).replace(/-/g, '') === String(this.self.id).replace(/-/g, '')) {
           this.myRole = m.role || 'member';
+          if (typeof m.isMod === 'boolean' && m.isMod !== this.isMod) {
+            this.isMod = m.isMod;
+            this.emit('mod', { kind: 'access', isMod: this.isMod });
+          }
         }
         this.push();
         break;
