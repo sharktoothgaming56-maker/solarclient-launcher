@@ -3348,6 +3348,69 @@ body.perf-lite .lq-shine{
 .op-tag{flex-shrink:0; font-size:10px; font-weight:900; letter-spacing:0.5px; text-transform:uppercase; color:var(--text-faint); padding:0 4px;}
 .op-tag.friends{color:var(--ok);}
 
+/* Who's online (beta): grouped by role, owners first, then admins and verified. */
+#online-pop.op-beta{ width:340px; max-height:min(540px, calc(100vh - 70px)); font-family:'Geist', 'Segoe UI', system-ui, sans-serif; }
+#online-pop.op-beta:not(.hidden){ animation:op-drop .34s cubic-bezier(.16,1,.3,1) both; transform-origin:50% 0; }
+#online-pop.op-beta.liquid-glass > .lq-tint{ opacity:1 !important; background:linear-gradient(160deg, rgba(32,26,54,0.82), rgba(12,10,22,0.9)) !important; }
+#online-pop.op-beta .op-head{ padding:14px 12px 10px 16px; }
+#online-pop.op-beta .op-title{ font-size:15px; font-weight:700; letter-spacing:-0.01em; }
+#online-pop.op-beta .op-sub{ font-family:'Geist Mono', ui-monospace, monospace; font-size:10.5px; font-weight:500; letter-spacing:0.02em; color:rgba(255,255,255,0.55); }
+#online-pop.op-beta .op-search-wrap{ padding:0 12px 8px; }
+#online-pop.op-beta .op-search{
+  padding:8px 12px; border-radius:11px; font-family:inherit; font-size:12.5px;
+  border:1px solid rgba(255,255,255,0.12); background:rgba(0,0,0,0.28);
+  transition:border-color .2s, box-shadow .2s, background-color .2s;
+}
+#online-pop.op-beta .op-search:focus{
+  border-color:color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  background-color:rgba(0,0,0,0.38);
+}
+#online-pop.op-beta .op-list{ padding:0 8px 10px; gap:1px; }
+#online-pop.op-beta .op-group{
+  display:flex; align-items:center; gap:8px; padding:12px 8px 5px;
+  font-family:'Geist Mono', ui-monospace, monospace; font-size:10px; font-weight:600;
+  letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.5);
+}
+#online-pop.op-beta .op-group:first-child{ padding-top:4px; }
+#online-pop.op-beta .op-group::after{ content:''; flex:1; height:1px; background:linear-gradient(90deg, rgba(255,255,255,0.14), transparent); }
+#online-pop.op-beta .op-group em{ font-style:normal; color:rgba(255,255,255,0.32); }
+#online-pop.op-beta .op-group[data-role="owner"] span{ color:#facc15; }
+#online-pop.op-beta .op-group[data-role="admin"] span{ color:#f87171; }
+#online-pop.op-beta .op-group[data-role="verified"] span{ color:#4ade80; }
+#online-pop.op-beta .op-group[data-role="solar+"] span{ color:#c4a8ff; }
+#online-pop.op-beta .op-row{ gap:11px; padding:7px 8px; border-radius:12px; transition:background .18s, transform .22s cubic-bezier(.16,1,.3,1); }
+#online-pop.op-beta .op-row:hover{ background:rgba(255,255,255,0.075); transform:translateX(2px); }
+#online-pop.op-beta .op-row.is-self{
+  background:color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.op-face-wrap{ position:relative; flex-shrink:0; line-height:0; }
+#online-pop.op-beta .op-face{ width:32px; height:32px; border-radius:9px; box-shadow:0 0 0 1px rgba(255,255,255,0.1), 0 4px 10px rgba(0,0,0,0.35); }
+.op-dot{ position:absolute; right:-3px; bottom:-3px; width:11px; height:11px; border-radius:50%; background:#4ade80; box-shadow:0 0 0 2.5px rgba(22,18,38,0.95); }
+.op-dot.ingame{ background:#b388ff; box-shadow:0 0 0 2.5px rgba(22,18,38,0.95), 0 0 8px #b388ff; }
+#online-pop.op-beta .op-info{ gap:2px; }
+#online-pop.op-beta .op-name{ font-size:13px; font-weight:600; letter-spacing:-0.005em; }
+#online-pop.op-beta .op-status{ font-size:11px; font-weight:500; }
+#online-pop.op-beta .op-status i{ display:none; }
+#online-pop.op-beta .op-name .op-role{
+  display:inline-block; vertical-align:1px; margin-left:7px; padding:2px 6px; border-radius:6px;
+  font-family:'Geist Mono', ui-monospace, monospace; font-size:9px; font-weight:600; letter-spacing:0.08em;
+  background:rgba(255,255,255,0.08); box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);
+}
+#online-pop.op-beta .op-role[data-role="owner"]{ background:rgba(250,204,21,0.14); box-shadow:inset 0 0 0 1px rgba(250,204,21,0.38); }
+#online-pop.op-beta .op-role[data-role="admin"]{ background:rgba(248,113,113,0.14); box-shadow:inset 0 0 0 1px rgba(248,113,113,0.38); }
+#online-pop.op-beta .op-role[data-role="verified"]{ background:rgba(74,222,128,0.13); box-shadow:inset 0 0 0 1px rgba(74,222,128,0.36); }
+#online-pop.op-beta .op-role[data-role="solar+"]{ color:#c4a8ff; background:rgba(157,107,255,0.16); box-shadow:inset 0 0 0 1px rgba(157,107,255,0.4); }
+#online-pop.op-beta .op-act{ transition:filter .15s, transform .15s; }
+#online-pop.op-beta .op-act:active{ transform:scale(0.95); }
+#online-pop.op-beta .op-list.op-anim > :is(.op-row, .op-group){
+  animation:op-row-in .44s cubic-bezier(.16,1,.3,1) both;
+  animation-delay:calc(var(--i, 0) * 28ms + 60ms);
+}
+@keyframes op-drop{ from{ opacity:0; transform:translateY(-8px) scale(.97); } to{ opacity:1; transform:none; } }
+@keyframes op-row-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+
 /* Person menu from live chat / the online list — above both panels. */
 .people-menu{z-index:1200; background:rgba(18,13,34,0.96); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);}
 .pm-head{display:flex; align-items:center; gap:8px; padding:6px 10px 7px; margin-bottom:2px; font-size:12px; font-weight:900; color:var(--text); border-bottom:1px solid rgba(255,255,255,0.08);}
@@ -3486,18 +3549,21 @@ body.beta-layout.launch-style-purple :is(#launch-btn, #launch-another-btn, #bedr
 }
 
 /* Top bar chips (beta): same fill and black stroke; the Beta chip keeps its gold. */
-body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip),
-body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip):is(:hover, .open, .offline, .has-update){
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip),
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):is(:hover, .open, .offline, .has-update){
   background:linear-gradient(160deg, var(--btn-top, #835ecd), var(--btn-bot, #3c295c)) !important;
   border:2px solid #000 !important;
   color:#fff !important;
 }
-body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip):is(:hover, .open){
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):is(:hover, .open){
   filter:brightness(1.12);
 }
+body.beta-layout #mod-chip svg{ fill:#fff; stroke:#000; stroke-width:1.6px; stroke-linejoin:round; paint-order:stroke fill; overflow:visible; }
+body.beta-layout #mod-chip .chat-chip-badge{ -webkit-text-stroke:0; }
+body.beta-layout #level-card .level-card-xp{ -webkit-text-stroke:0 !important; color:rgba(255,255,255,0.82); text-shadow:0 1px 3px rgba(0,0,0,0.55); }
 
 /* Black outline on the text of the main launch buttons and the top bar chips (beta). */
-body.beta-layout :is(#launch-btn, #launch-another-btn, #bedrock-launch-btn, #edition-switch, #bedrock-edition-switch, #perf-chip, #fastlaunch-chip, #level-card, #update-chip, #online-indicator, #ingame-indicator, #chat-chip){
+body.beta-layout :is(#launch-btn, #launch-another-btn, #bedrock-launch-btn, #edition-switch, #bedrock-edition-switch, #perf-chip, #fastlaunch-chip, #level-card, #update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip){
   -webkit-text-stroke:2px #000;
   paint-order:stroke fill;
 }
@@ -3993,6 +4059,65 @@ body.beta-layout #cs-invite-pop:not(.hidden){
 .mod-discord-result{ margin-top:10px; font-size:12.5px; font-weight:700; min-height:18px; }
 .mod-discord-result.ok{ color:#9ff0b9; }
 .mod-discord-result.bad{ color:#ff9aa2; }
+
+/* Admin panel popped out: no scrim, a tall glass box that floats over the launcher. */
+#mod-modal.floating{ pointer-events:none; background:none; z-index:920; }
+#mod-modal.floating:not(#_):not(#__){ -webkit-backdrop-filter:none !important; backdrop-filter:none !important; }
+#mod-modal.floating .mod-panel{ pointer-events:auto; }
+#mod-modal.floating .mod-panel.liquid-glass{
+  position:fixed !important; padding:16px 16px 14px; min-width:380px; min-height:360px;
+  box-shadow:0 18px 48px rgba(0,0,0,0.55);
+}
+#mod-modal.floating .mod-panel.liquid-glass > .lq-tint{
+  opacity:1 !important;
+  background:linear-gradient(160deg, rgba(32,26,54,0.80), rgba(12,10,22,0.88)) !important;
+}
+#mod-modal.floating .mod-head{ cursor:grab; user-select:none; }
+#mod-modal.floating.dragging .mod-head{ cursor:grabbing; }
+#mod-modal.dragging, #mod-modal.resizing{ user-select:none; }
+#mod-modal.resizing .mod-panel > :is(.lq-refract, .lq-specular){ visibility:hidden !important; }
+#mod-modal.floating .mod-tabs{ flex-wrap:wrap; }
+#mod-modal.floating .mod-ban-form{ grid-template-columns:1fr; }
+#mod-modal.floating .mod-shield{ width:34px; height:34px; border-radius:10px; }
+#mod-modal.floating .mod-title{ font-size:16px; }
+.mod-panel > .mod-rz{ display:none; }
+#mod-modal.floating .mod-panel > .mod-rz{ display:block; position:absolute !important; z-index:6 !important; width:16px; height:16px; }
+#mod-modal.floating .mod-panel > .mod-rz.nw{ top:0; left:0; cursor:nwse-resize; }
+#mod-modal.floating .mod-panel > .mod-rz.ne{ top:0; right:0; cursor:nesw-resize; }
+#mod-modal.floating .mod-panel > .mod-rz.sw{ bottom:0; left:0; cursor:nesw-resize; }
+#mod-modal.floating .mod-panel > .mod-rz.se{ bottom:0; right:0; cursor:nwse-resize; }
+#mod-modal.floating .mod-panel > .mod-rz.se::after{
+  content:''; position:absolute; right:4px; bottom:4px; width:8px; height:8px;
+  border-right:2px solid rgba(255,255,255,0.35); border-bottom:2px solid rgba(255,255,255,0.35);
+  border-bottom-right-radius:4px;
+}
+#mod-modal.floating .mod-panel > .mod-rz.se:hover::after{ border-color:rgba(255,255,255,0.7); }
+
+/* Admin panel buttons (beta): the top bar's purple fill with the black stroke. */
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn){
+  background:linear-gradient(160deg, var(--btn-top, #835ecd), var(--btn-bot, #3c295c)) !important;
+  border:2px solid #000 !important;
+  color:#fff !important;
+  box-shadow:none !important;
+  -webkit-text-stroke:2px #000;
+  paint-order:stroke fill;
+  transition:filter .15s, transform .15s;
+}
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn):hover:not(:disabled){
+  filter:brightness(1.14);
+}
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn):active:not(:disabled){
+  transform:scale(0.97);
+}
+body.beta-layout #mod-modal :is(.mod-tab.active, .mod-quick button.on, .mod-filter button.on){
+  filter:brightness(1.22);
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,0.5), 0 0 14px color-mix(in srgb, var(--accent) 45%, transparent) !important;
+}
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn) svg{
+  fill:#fff !important; stroke:#000; stroke-width:1.6px; stroke-linejoin:round; paint-order:stroke fill; overflow:visible;
+}
+body.beta-layout #mod-modal .mod-count{ -webkit-text-stroke:0; background:rgba(0,0,0,0.45); }
+body.beta-layout #mod-modal .mod-tab[data-tab="flags"] .mod-count.has{ background:#e0505a; }
 
 /* ---------- ban screen ---------- */
 .ban-screen{ z-index:20000; background:radial-gradient(circle at 50% 35%, rgba(70,14,26,0.92), rgba(6,4,12,0.97) 70%) !important; }

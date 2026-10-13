@@ -48,7 +48,7 @@
       "releaseType": "release"
     },
     "directories": {
-      "output": "dist117"
+      "output": "dist118"
     },
     "files": [
       "src/**/*",

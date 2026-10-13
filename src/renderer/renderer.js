@@ -4296,6 +4296,22 @@ function playLabelSwap() {
   setTimeout(() => launchBtn.classList.remove('swapping'), 180);
 }
 
+/** "Running 42s", "Running 5m 07s", "Running 1h 05m 07s". */
+function runTimeLabel(info) {
+  const s = Math.max(0, Math.floor((Date.now() - (info?.startedAt || Date.now())) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (h) return `Running ${h}h ${pad(m)}m ${pad(sec)}s`;
+  if (m) return `Running ${m}m ${pad(sec)}s`;
+  return `Running ${sec}s`;
+}
+
+setInterval(() => {
+  if (!betaLayoutOn() || !launchBtn?.classList.contains('stop-state')) return;
+  const info = runningLaunches.get(latestLaunchId);
+  if (info) launchSubEl.textContent = runTimeLabel(info);
+}, 1000);
+
 function updateLaunchButtons() {
   const sel = document.getElementById('launch-instance-select');
   const hasSelection = !!sel.value;
@@ -4307,10 +4323,15 @@ function updateLaunchButtons() {
     launchBtn.disabled = false;
     if (__lastLaunchLabel !== 'STOP') { playLabelSwap(); __lastLaunchLabel = 'STOP'; }
     launchLabelEl.textContent = 'STOP';
-    // STOP shows only the word. The old subtitle ("... is running — click
-    // to stop") is hidden so the red button reads as one clean word.
-    launchSubEl.textContent = '';
-    launchSubEl.style.display = 'none';
+    if (betaLayoutOn()) {
+      launchSubEl.textContent = runTimeLabel(info);
+      launchSubEl.style.display = '';
+    } else {
+      // STOP shows only the word. The old subtitle ("... is running — click
+      // to stop") is hidden so the red button reads as one clean word.
+      launchSubEl.textContent = '';
+      launchSubEl.style.display = 'none';
+    }
     anotherBtn.classList.toggle('hidden', !(signedIn && hasSelection));
     monitorChip.classList.remove('hidden');
   } else {
@@ -5539,10 +5560,101 @@ function openReport(person) { reportApi?.open(person); }
     localStorage.setItem(SEEN_KEY, String(Date.now()));
     unseen = 0; setBadge();
     modal.classList.remove('hidden');
+    if (isFloating()) placeBox(boxNow());
     renderAll();
     load();
   }
   const close = () => modal.classList.add('hidden');
+
+  // ---- pop out: a tall floating box you can drag and resize, like live chat ----
+  const panel = modal.querySelector('.mod-panel');
+  const head = modal.querySelector('.mod-head');
+  const popBtn = $('mod-pop');
+  const FLOAT_KEY = 'solar.mod.float';
+  const BOX_KEY = 'solar.mod.box';
+  const MIN_W = 380, MIN_H = 360;
+  const ICON_POP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42L17.59 5H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>';
+  const ICON_DOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h14V5H5zm3 3h8v8H8V8z"/></svg>';
+  const isFloating = () => modal.classList.contains('floating');
+  const defaultBox = () => ({ x: 84, y: 52, w: 460, h: Math.min(760, window.innerHeight - 70) });
+  const boxNow = () => {
+    try {
+      const b = JSON.parse(localStorage.getItem(BOX_KEY) || 'null');
+      if (b && [b.x, b.y, b.w, b.h].every(Number.isFinite)) return b;
+    } catch { /* ignore */ }
+    return defaultBox();
+  };
+  const placeBox = (b) => {
+    const w = Math.max(MIN_W, Math.min(b.w, window.innerWidth - 16));
+    const h = Math.max(MIN_H, Math.min(b.h, window.innerHeight - 48));
+    const x = Math.max(8, Math.min(b.x, window.innerWidth - w - 8));
+    const y = Math.max(40, Math.min(b.y, window.innerHeight - h - 8));
+    Object.assign(panel.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+  };
+  const saveBox = () => {
+    const r = panel.getBoundingClientRect();
+    try {
+      localStorage.setItem(BOX_KEY, JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }));
+    } catch { /* full */ }
+  };
+  function setFloating(on) {
+    modal.classList.toggle('floating', on);
+    if (on) placeBox(boxNow());
+    else ['left', 'top', 'width', 'height'].forEach((k) => panel.style.removeProperty(k));
+    popBtn.innerHTML = on ? ICON_DOCK : ICON_POP;
+    popBtn.title = on ? 'Put it back in the middle' : 'Pop out into a box you can move';
+    try { localStorage.setItem(FLOAT_KEY, on ? '1' : '0'); } catch { /* full */ }
+  }
+  setFloating(localStorage.getItem(FLOAT_KEY) === '1');
+  popBtn.addEventListener('click', () => setFloating(!isFloating()));
+  head.addEventListener('mousedown', (e) => {
+    if (!isFloating() || e.button !== 0 || e.target.closest('button, input')) return;
+    e.preventDefault();
+    const r = panel.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    modal.classList.add('dragging');
+    const move = (ev) => placeBox({ x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      modal.classList.remove('dragging');
+      saveBox();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+  panel.querySelectorAll('.mod-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
+    if (!isFloating() || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const dir = grip.dataset.rz;
+    const east = dir.includes('e'), south = dir.includes('s');
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const maxW = east ? window.innerWidth - 8 - r.left : r.right - 8;
+    const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
+    modal.classList.add('resizing');
+    // Rebuilding the glass lens every frame makes the drag stutter; repaint once at the end.
+    window.SolarLiquidGlass?.detach(panel);
+    const move = (ev) => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      const w = Math.max(MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
+      const h = Math.max(MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
+      Object.assign(panel.style, {
+        width: `${w}px`, height: `${h}px`,
+        left: `${east ? r.left : r.right - w}px`, top: `${south ? r.top : r.bottom - h}px`,
+      });
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      modal.classList.remove('resizing');
+      window.SolarLiquidGlass?.attach(panel);
+      saveBox();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }));
+  window.addEventListener('resize', () => { if (isFloating() && isOpen()) placeBox(boxNow()); });
 
   // ---- evidence viewer ----
   const viewer = $('mod-viewer');
@@ -5900,7 +6012,14 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   const search = document.getElementById('online-pop-search');
   let data = null;
   let timer = null;
+  let animateNext = false;
   const isOpen = () => !pop.classList.contains('hidden');
+  const ROLE_ORDER = ['owner', 'admin', 'verified', 'solar+'];
+  const ROLE_GROUP = { owner: 'Owners', admin: 'Admins', verified: 'Verified', 'solar+': 'Solar+' };
+  const roleRank = (p) => {
+    const i = ROLE_ORDER.indexOf(String(p.role || '').toLowerCase());
+    return i < 0 ? ROLE_ORDER.length : i;
+  };
 
   function place() {
     const r = chip.getBoundingClientRect();
@@ -5914,25 +6033,54 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     if (!data) return;
     const q = search.value.trim().toLowerCase();
     const inGame = data.people.filter(p => p.inGame).length;
+    const beta = betaLayoutOn();
+    pop.classList.toggle('op-beta', beta);
     sub.textContent = `${data.total} online · ${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
     const rows = data.people
       .filter(p => !q || p.name.toLowerCase().includes(q))
-      .sort((a, b) => (!!b.self - !!a.self) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name));
+      .sort(beta
+        ? (a, b) => (roleRank(a) - roleRank(b)) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name)
+        : (a, b) => (!!b.self - !!a.self) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name));
     if (!rows.length) {
       list.innerHTML = `<p class="op-empty">${q ? 'Nobody by that name is online.' : 'Nobody else is showing as online right now.'}</p>`;
       return;
     }
     list.innerHTML = '';
+    if (beta && animateNext) {
+      animateNext = false;
+      list.classList.remove('op-anim');
+      void list.offsetWidth;
+      list.classList.add('op-anim');
+      clearTimeout(list._animTimer);
+      list._animTimer = setTimeout(() => list.classList.remove('op-anim'), 1200);
+    }
+    let group = -1;
+    let order = 0;
     for (const p of rows) {
+      if (beta && roleRank(p) !== group) {
+        group = roleRank(p);
+        const key = ROLE_ORDER[group] || 'member';
+        const head = document.createElement('div');
+        head.className = 'op-group';
+        head.dataset.role = key;
+        head.style.setProperty('--i', Math.min(order++, 16));
+        head.innerHTML = `<span>${ROLE_GROUP[key] || 'Members'}</span><em>${rows.filter(x => roleRank(x) === group).length}</em>`;
+        list.appendChild(head);
+      }
       const row = document.createElement('div');
       row.className = 'op-row';
+      if (beta) {
+        row.style.setProperty('--i', Math.min(order++, 16));
+        row.classList.toggle('is-self', !!p.self);
+      }
       const role = p.role && p.role !== 'member' ? `<span class="op-role" data-role="${escapeHtml(String(p.role).toLowerCase())}">${escapeHtml(p.role)}</span>` : '';
       const status = p.inGame ? '<span class="op-status ingame"><i></i>In game</span>' : '<span class="op-status"><i></i>In the launcher</span>';
       const action = p.self ? '<span class="op-tag">You</span>'
         : p.following && p.follower ? '<span class="op-tag friends">Friends</span>'
         : p.following ? '<button class="op-act" data-act="menu">Following</button>'
         : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
-      row.innerHTML = `<img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}>
+      const face = `<img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}>`;
+      row.innerHTML = `${beta ? `<span class="op-face-wrap">${face}<i class="op-dot${p.inGame ? ' ingame' : ''}"></i></span>` : face}
         <div class="op-info"><span class="op-name"><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${role}${p.self ? '' : reportFlag(p.uuid, p.name)}</span>${status}</div>${action}`;
       row.querySelector('.op-face').onerror = (e) => { e.target.style.visibility = 'hidden'; };
       if (!p.self) {
@@ -5971,6 +6119,8 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   }
 
   function open() {
+    animateNext = true;
+    pop.classList.toggle('op-beta', betaLayoutOn());
     pop.classList.remove('hidden');
     chip.classList.add('open');
     place();
