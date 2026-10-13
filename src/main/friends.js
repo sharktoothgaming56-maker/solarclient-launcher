@@ -195,7 +195,6 @@ class Friends extends EventEmitter {
     this.myRole = 'member';        // our own badge tier, from the backend
     this.isOwner = false;          // may we run /solarclient admin commands
     this.roleCache = new Map();    // uuid -> role, for drawing others' badges
-    this._adminWaiters = new Set();// pending /solarclient command promises
     this._roleWaiters = new Set(); // pending queryRoles promises
     this._communityWaiters = new Map(); // community id -> resolve, for create/join
     this.communitiesLoaded = false;
@@ -402,11 +401,6 @@ class Friends extends EventEmitter {
   }
 
   /**
-   * Run an owner-only role command against the backend and resolve with its
-   * result. Used by the in-game /solarclient command via the bridge. Always
-   * resolves (never rejects) so the caller can just show the message.
-   */
-  /**
    * Ask the backend for the badge roles of a set of UUIDs (for drawing
    * badges in game). Resolves with a { uuid: role } map, or an empty map if
    * we're offline. Never rejects.
@@ -429,18 +423,6 @@ class Friends extends EventEmitter {
       }, 6000);
       this._roleWaiters.add(done);
       this.transport.send({ t: 'roles_query', uuids: list });
-    });
-  }
-
-  sendAdminCommand({ role, op, target, discord }) {
-    return new Promise((resolve) => {
-      if (this.transport.kind !== 'socket' || !this.transport.connected) {
-        return resolve({ ok: false, reason: 'Not connected to SolarClient online.' });
-      }
-      const done = (result) => { clearTimeout(timer); this._adminWaiters.delete(done); resolve(result); };
-      const timer = setTimeout(() => done({ ok: false, reason: 'The server did not respond.' }), 8000);
-      this._adminWaiters.add(done);
-      this.transport.send({ t: 'admin_cmd', role, op, target, ...(discord ? { discord } : {}) });
     });
   }
 
@@ -848,11 +830,6 @@ class Friends extends EventEmitter {
         c.messages[m.channelId] = list.slice(-200);
         this.write({ communities: all });
         this.push();
-        break;
-      }
-      // Result of a /solarclient admin command — resolve whoever's waiting.
-      case 'admin_result': {
-        for (const w of [...this._adminWaiters]) w(m);
         break;
       }
       // Our own (or a queried player's) badge tier changed.

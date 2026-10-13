@@ -1427,15 +1427,10 @@ function ensureBridge() {
           const map = await f.queryRoles(payload.uuids || []);
           return reply({ ok: true, roles: map });
         }
-        case 'solarclient:command': {
-          const parts = String(payload.raw || '').trim().split(/\s+/);
-          const [role, op, target, discord] = parts;
-          if (!role || !op || !target) {
-            return reply({ ok: false, message: 'Usage: /solarclient <admin|verify|solar+|owner> <add|remove> <username> [discord username]' });
-          }
-          const result = await f.sendAdminCommand({ role, op, target, discord });
-          return reply({ ok: !!result.ok, message: result.ok ? result.message : (result.reason || 'Command failed.') });
-        }
+        // Roles are managed only with !solarclient on Discord; older mods
+        // still send the in-game command, so answer it here.
+        case 'solarclient:command':
+          return reply({ ok: false, message: 'Roles are managed on Discord now: !solarclient <role> <add|remove> <minecraft name> <discord username>' });
         default: break;
       }
       reply({ ok: true });
