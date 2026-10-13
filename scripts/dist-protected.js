@@ -91,7 +91,15 @@ function collect(dir, out = []) {
 function verifyUpdateHelper() {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const linux = process.platform === 'linux';
-  const asarPath = path.join(ROOT, pkg.build.directories.output, linux ? 'linux-unpacked' : 'win-unpacked', 'resources', 'app.asar');
+  const args = process.argv.slice(2);
+  const flag = '--config.directories.output';
+  let override = null;
+  args.forEach((a, i) => {
+    if (a.startsWith(`${flag}=`)) override = a.slice(flag.length + 1);
+    else if (a === flag && args[i + 1]) override = args[i + 1];
+  });
+  const outDir = path.resolve(ROOT, override || pkg.build.directories.output);
+  const asarPath = path.join(outDir, linux ? 'linux-unpacked' : 'win-unpacked', 'resources', 'app.asar');
   const need = linux
     ? ['/src/main/autoUpdater.js', '/src/main/endpoints.js', '/build/icon.png']
     : ['solar-update-helper.ps1', 'solar-update-helper.cmd', 'solar-update-window.ps1'].map((n) => `/scripts/${n}`);

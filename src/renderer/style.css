@@ -3348,68 +3348,60 @@ body.perf-lite .lq-shine{
 .op-tag{flex-shrink:0; font-size:10px; font-weight:900; letter-spacing:0.5px; text-transform:uppercase; color:var(--text-faint); padding:0 4px;}
 .op-tag.friends{color:var(--ok);}
 
-/* Who's online (beta): grouped by role, owners first, then admins and verified. */
-#online-pop.op-beta{ width:340px; max-height:min(540px, calc(100vh - 70px)); font-family:'Geist', 'Segoe UI', system-ui, sans-serif; }
-#online-pop.op-beta:not(.hidden){ animation:op-drop .34s cubic-bezier(.16,1,.3,1) both; transform-origin:50% 0; }
-#online-pop.op-beta.liquid-glass > .lq-tint{ opacity:1 !important; background:linear-gradient(160deg, rgba(32,26,54,0.82), rgba(12,10,22,0.9)) !important; }
-#online-pop.op-beta .op-head{ padding:14px 12px 10px 16px; }
-#online-pop.op-beta .op-title{ font-size:15px; font-weight:700; letter-spacing:-0.01em; }
-#online-pop.op-beta .op-sub{ font-family:'Geist Mono', ui-monospace, monospace; font-size:10.5px; font-weight:500; letter-spacing:0.02em; color:rgba(255,255,255,0.55); }
-#online-pop.op-beta .op-search-wrap{ padding:0 12px 8px; }
-#online-pop.op-beta .op-search{
-  padding:8px 12px; border-radius:11px; font-family:inherit; font-size:12.5px;
-  border:1px solid rgba(255,255,255,0.12); background:rgba(0,0,0,0.28);
-  transition:border-color .2s, box-shadow .2s, background-color .2s;
+/* Who's online (beta): a plain member list. Owners first, then admins, verified
+   and Solar+; the role shows as the name colour plus a small icon. */
+#online-pop.op-beta{ width:320px; max-height:min(560px, calc(100vh - 70px)); }
+#online-pop.op-beta:not(.hidden){ animation:op-drop .26s cubic-bezier(.2,.8,.2,1) both; transform-origin:50% 0; }
+#online-pop.op-beta.liquid-glass > .lq-tint{ opacity:1 !important; background:linear-gradient(160deg, rgba(32,26,54,0.86), rgba(12,10,22,0.92)) !important; }
+#online-pop.op-beta .op-head{ padding:14px 10px 2px 16px; }
+#online-pop.op-beta .op-title{ font-size:14px; font-weight:800; letter-spacing:0; }
+#online-pop.op-beta .op-sub{ font-size:11px; font-weight:600; color:rgba(255,255,255,0.5); }
+.op-views{ display:flex; gap:18px; padding:6px 16px 0; border-bottom:1px solid rgba(255,255,255,0.08); }
+.op-views button{
+  appearance:none; background:none; border:0; border-bottom:2px solid transparent; margin-bottom:-1px; padding:6px 0 8px;
+  font:inherit; font-size:12px; font-weight:700; color:rgba(255,255,255,0.5); cursor:pointer; transition:color .12s, border-color .12s;
 }
-#online-pop.op-beta .op-search:focus{
-  border-color:color-mix(in srgb, var(--accent) 70%, transparent);
-  box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-  background-color:rgba(0,0,0,0.38);
-}
-#online-pop.op-beta .op-list{ padding:0 8px 10px; gap:1px; }
-#online-pop.op-beta .op-group{
-  display:flex; align-items:center; gap:8px; padding:12px 8px 5px;
-  font-family:'Geist Mono', ui-monospace, monospace; font-size:10px; font-weight:600;
-  letter-spacing:0.14em; text-transform:uppercase; color:rgba(255,255,255,0.5);
-}
-#online-pop.op-beta .op-group:first-child{ padding-top:4px; }
-#online-pop.op-beta .op-group::after{ content:''; flex:1; height:1px; background:linear-gradient(90deg, rgba(255,255,255,0.14), transparent); }
-#online-pop.op-beta .op-group em{ font-style:normal; color:rgba(255,255,255,0.32); }
-#online-pop.op-beta .op-group[data-role="owner"] span{ color:#facc15; }
-#online-pop.op-beta .op-group[data-role="admin"] span{ color:#f87171; }
-#online-pop.op-beta .op-group[data-role="verified"] span{ color:#4ade80; }
-#online-pop.op-beta .op-group[data-role="solar+"] span{ color:#c4a8ff; }
-#online-pop.op-beta .op-row{ gap:11px; padding:7px 8px; border-radius:12px; transition:background .18s, transform .22s cubic-bezier(.16,1,.3,1); }
-#online-pop.op-beta .op-row:hover{ background:rgba(255,255,255,0.075); transform:translateX(2px); }
-#online-pop.op-beta .op-row.is-self{
-  background:color-mix(in srgb, var(--accent) 12%, transparent);
-  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
-}
+.op-views button span{ margin-left:3px; font-weight:600; color:rgba(255,255,255,0.32); }
+.op-views button:hover{ color:rgba(255,255,255,0.85); }
+.op-views button.on{ color:#fff; border-bottom-color:var(--accent); }
+.op-views button.on span{ color:rgba(255,255,255,0.6); }
+#online-pop.op-beta .op-search-wrap{ padding:10px 12px 4px; }
+#online-pop.op-beta .op-search{ padding:7px 10px; border-radius:8px; font-size:12px; border:1px solid transparent; background:rgba(0,0,0,0.32); }
+#online-pop.op-beta .op-search:focus{ border-color:rgba(255,255,255,0.2); }
+#online-pop.op-beta .op-list{ padding:0 8px 8px; gap:0; }
+#online-pop.op-beta .op-group{ padding:12px 8px 4px; font-size:11px; font-weight:700; letter-spacing:0.02em; text-transform:uppercase; color:rgba(255,255,255,0.45); }
+#online-pop.op-beta .op-group:first-child{ padding-top:6px; }
+#online-pop.op-beta .op-row{ gap:10px; padding:5px 8px; border-radius:6px; }
+#online-pop.op-beta .op-row:hover{ background:rgba(255,255,255,0.06); }
 .op-face-wrap{ position:relative; flex-shrink:0; line-height:0; }
-#online-pop.op-beta .op-face{ width:32px; height:32px; border-radius:9px; box-shadow:0 0 0 1px rgba(255,255,255,0.1), 0 4px 10px rgba(0,0,0,0.35); }
-.op-dot{ position:absolute; right:-3px; bottom:-3px; width:11px; height:11px; border-radius:50%; background:#4ade80; box-shadow:0 0 0 2.5px rgba(22,18,38,0.95); }
-.op-dot.ingame{ background:#b388ff; box-shadow:0 0 0 2.5px rgba(22,18,38,0.95), 0 0 8px #b388ff; }
-#online-pop.op-beta .op-info{ gap:2px; }
-#online-pop.op-beta .op-name{ font-size:13px; font-weight:600; letter-spacing:-0.005em; }
-#online-pop.op-beta .op-status{ font-size:11px; font-weight:500; }
-#online-pop.op-beta .op-status i{ display:none; }
-#online-pop.op-beta .op-name .op-role{
-  display:inline-block; vertical-align:1px; margin-left:7px; padding:2px 6px; border-radius:6px;
-  font-family:'Geist Mono', ui-monospace, monospace; font-size:9px; font-weight:600; letter-spacing:0.08em;
-  background:rgba(255,255,255,0.08); box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);
+#online-pop.op-beta .op-face{ width:32px; height:32px; border-radius:6px; }
+.op-dot{ position:absolute; right:-3px; bottom:-3px; width:10px; height:10px; border-radius:50%; background:#3ba55d; box-shadow:0 0 0 3px #1a1527; }
+.op-dot.ingame{ background:#9d6bff; }
+#online-pop.op-beta .op-info{ gap:1px; }
+#online-pop.op-beta .op-name{ display:flex; align-items:center; gap:5px; font-size:13px; font-weight:700; }
+#online-pop.op-beta .op-nick{ min-width:0; overflow:hidden; text-overflow:ellipsis; color:#ece9f5; }
+#online-pop.op-beta .op-row[data-role="owner"] .op-nick{ color:#f5c542; }
+#online-pop.op-beta .op-row[data-role="admin"] .op-nick{ color:#ff6b6b; }
+#online-pop.op-beta .op-row[data-role="verified"] .op-nick{ color:#57d98a; }
+#online-pop.op-beta .op-row[data-role="solar+"] .op-nick{ color:#b794ff; }
+.op-badge{ width:13px; height:13px; flex-shrink:0; }
+.op-row[data-role="owner"] .op-badge{ fill:#f5c542; }
+.op-row[data-role="admin"] .op-badge{ fill:#ff6b6b; }
+.op-row[data-role="verified"] .op-badge{ fill:#57d98a; }
+.op-row[data-role="solar+"] .op-badge{ fill:#b794ff; }
+.op-you{ font-size:11px; font-weight:600; color:rgba(255,255,255,0.4); }
+#online-pop.op-beta .op-status{ font-size:11.5px; font-weight:500; color:rgba(255,255,255,0.5); }
+#online-pop.op-beta .op-row .rflag{ opacity:0; transition:opacity .12s; }
+#online-pop.op-beta .op-row:hover .rflag{ opacity:1; }
+#online-pop.op-beta .op-act{
+  padding:4px 10px; border-radius:6px; font-size:11px; font-weight:700; box-shadow:none;
+  color:rgba(255,255,255,0.75); background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
 }
-#online-pop.op-beta .op-role[data-role="owner"]{ background:rgba(250,204,21,0.14); box-shadow:inset 0 0 0 1px rgba(250,204,21,0.38); }
-#online-pop.op-beta .op-role[data-role="admin"]{ background:rgba(248,113,113,0.14); box-shadow:inset 0 0 0 1px rgba(248,113,113,0.38); }
-#online-pop.op-beta .op-role[data-role="verified"]{ background:rgba(74,222,128,0.13); box-shadow:inset 0 0 0 1px rgba(74,222,128,0.36); }
-#online-pop.op-beta .op-role[data-role="solar+"]{ color:#c4a8ff; background:rgba(157,107,255,0.16); box-shadow:inset 0 0 0 1px rgba(157,107,255,0.4); }
-#online-pop.op-beta .op-act{ transition:filter .15s, transform .15s; }
-#online-pop.op-beta .op-act:active{ transform:scale(0.95); }
-#online-pop.op-beta .op-list.op-anim > :is(.op-row, .op-group){
-  animation:op-row-in .44s cubic-bezier(.16,1,.3,1) both;
-  animation-delay:calc(var(--i, 0) * 28ms + 60ms);
-}
-@keyframes op-drop{ from{ opacity:0; transform:translateY(-8px) scale(.97); } to{ opacity:1; transform:none; } }
-@keyframes op-row-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+#online-pop.op-beta .op-act.follow{ color:#e2d6ff; background:rgba(157,107,255,0.16); border-color:rgba(157,107,255,0.42); }
+#online-pop.op-beta .op-row:hover .op-act.follow, #online-pop.op-beta .op-act.follow:hover{ color:#fff; background:var(--accent); border-color:var(--accent); }
+#online-pop.op-beta .op-act:active{ transform:scale(0.96); }
+#online-pop.op-beta .op-tag.friends{ font-size:11px; font-weight:600; letter-spacing:0; text-transform:none; color:#3ba55d; }
+@keyframes op-drop{ from{ opacity:0; transform:translateY(-6px); } to{ opacity:1; transform:none; } }
 
 /* Person menu from live chat / the online list — above both panels. */
 .people-menu{z-index:1200; background:rgba(18,13,34,0.96); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);}
@@ -4060,41 +4052,112 @@ body.beta-layout #cs-invite-pop:not(.hidden){
 .mod-discord-result.ok{ color:#9ff0b9; }
 .mod-discord-result.bad{ color:#ff9aa2; }
 
-/* Admin panel popped out: no scrim, a tall glass box that floats over the launcher. */
+/* Admin panel: a tall glass box that floats over the launcher; drag the header, resize from any corner. */
 #mod-modal.floating{ pointer-events:none; background:none; z-index:920; }
 #mod-modal.floating:not(#_):not(#__){ -webkit-backdrop-filter:none !important; backdrop-filter:none !important; }
-#mod-modal.floating .mod-panel{ pointer-events:auto; }
-#mod-modal.floating .mod-panel.liquid-glass{
-  position:fixed !important; padding:16px 16px 14px; min-width:380px; min-height:360px;
+#mod-modal .mod-panel{ pointer-events:auto; }
+#mod-modal .mod-panel.liquid-glass{
+  position:fixed !important; padding:14px 14px 12px; min-width:380px; min-height:360px; border-radius:18px;
   box-shadow:0 18px 48px rgba(0,0,0,0.55);
 }
-#mod-modal.floating .mod-panel.liquid-glass > .lq-tint{
+#mod-modal .mod-panel.liquid-glass > .lq-tint{
   opacity:1 !important;
   background:linear-gradient(160deg, rgba(32,26,54,0.80), rgba(12,10,22,0.88)) !important;
 }
-#mod-modal.floating .mod-head{ cursor:grab; user-select:none; }
-#mod-modal.floating.dragging .mod-head{ cursor:grabbing; }
+#mod-modal .mod-head{ gap:10px; margin:0 0 12px; padding:0 0 12px; border-bottom:1px solid rgba(255,255,255,0.08); cursor:grab; user-select:none; }
+#mod-modal.dragging .mod-head{ cursor:grabbing; }
 #mod-modal.dragging, #mod-modal.resizing{ user-select:none; }
 #mod-modal.resizing .mod-panel > :is(.lq-refract, .lq-specular){ visibility:hidden !important; }
-#mod-modal.floating .mod-tabs{ flex-wrap:wrap; }
-#mod-modal.floating .mod-ban-form{ grid-template-columns:1fr; }
-#mod-modal.floating .mod-shield{ width:34px; height:34px; border-radius:10px; }
-#mod-modal.floating .mod-title{ font-size:16px; }
-.mod-panel > .mod-rz{ display:none; }
-#mod-modal.floating .mod-panel > .mod-rz{ display:block; position:absolute !important; z-index:6 !important; width:16px; height:16px; }
-#mod-modal.floating .mod-panel > .mod-rz.nw{ top:0; left:0; cursor:nwse-resize; }
-#mod-modal.floating .mod-panel > .mod-rz.ne{ top:0; right:0; cursor:nesw-resize; }
-#mod-modal.floating .mod-panel > .mod-rz.sw{ bottom:0; left:0; cursor:nesw-resize; }
-#mod-modal.floating .mod-panel > .mod-rz.se{ bottom:0; right:0; cursor:nwse-resize; }
-#mod-modal.floating .mod-panel > .mod-rz.se::after{
+#mod-modal .mod-shield{ width:34px; height:34px; border-radius:10px; }
+#mod-modal .mod-shield svg{ width:19px; height:19px; }
+#mod-modal .mod-title{ font-size:16px; }
+.mod-icon-btn{ position:relative; width:32px; height:32px; padding:0; display:grid; place-items:center; border-radius:10px; cursor:pointer; flex-shrink:0; }
+.mod-icon-btn svg{ width:16px; height:16px; }
+.mod-dot{ position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; background:#8a8496; box-shadow:0 0 0 2px #000; }
+.mod-dot.ok{ background:#5eeb8f; }
+.mod-dot.off{ background:#e3ac45; }
+
+/* Tabs are count tiles: how much is waiting in each, at a glance. */
+#mod-modal .mod-tabs{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; margin-bottom:12px; }
+#mod-modal .mod-tab{ position:relative; flex-direction:column; align-items:flex-start; gap:0; min-width:0; padding:7px 11px 7px; border-radius:12px; }
+#mod-modal .mod-tab .mod-count{ min-width:0; height:auto; padding:0; background:none; font-size:21px; line-height:1.15; font-weight:900; text-align:left; }
+#mod-modal .mod-tab span{ font-size:11px; font-weight:800; letter-spacing:0.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+#mod-modal .mod-tab.has::after{
+  content:''; position:absolute; top:9px; right:9px; width:8px; height:8px; border-radius:50%;
+  background:#ff4d5e; box-shadow:0 0 0 2px #000, 0 0 10px rgba(255,77,94,0.8); animation:mod-ping 1.8s ease-in-out infinite;
+}
+@keyframes mod-ping{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.25); } }
+
+#mod-modal .mod-toolbar{ align-items:center; }
+.mod-search{ position:relative; flex:1; min-width:0; display:flex; align-items:center; }
+.mod-search svg{ position:absolute; left:11px; width:15px; height:15px; fill:rgba(255,255,255,0.45); pointer-events:none; }
+#mod-modal .mod-search input{ padding-left:33px; background:rgba(0,0,0,0.3); border-color:rgba(255,255,255,0.1); }
+#mod-modal .mod-search input:focus{ border-color:var(--accent); }
+
+/* Cards */
+#mod-modal .mod-list{ gap:8px; padding-right:2px; }
+#mod-modal .mod-card{
+  position:relative; flex-shrink:0; display:flex; flex-direction:column; align-items:stretch; gap:9px; padding:11px 12px; border-radius:14px;
+  background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); transition:border-color .15s, background-color .15s;
+}
+#mod-modal .mod-card:hover{ border-color:rgba(255,255,255,0.16); }
+#mod-modal .mod-card.new{ background:rgba(224,80,90,0.07); border-color:rgba(224,80,90,0.4); }
+#mod-modal .mod-card.new::before{ content:''; position:absolute; left:-1px; top:12px; bottom:12px; width:3px; border-radius:0 3px 3px 0; background:#ff4d5e; }
+.mod-card-head{ display:flex; align-items:center; gap:10px; min-width:0; }
+#mod-modal .mod-face{ width:34px; height:34px; border-radius:8px; }
+.mod-who{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.mod-who b{ display:flex; align-items:center; gap:7px; min-width:0; font-size:13.5px; font-weight:900; color:#fff; white-space:nowrap; }
+.mod-who > span{ display:flex; align-items:center; gap:4px; min-width:0; font-size:11.5px; font-weight:600; color:var(--text-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mod-who > span.mod-report-by img{ width:14px; height:14px; border-radius:3px; }
+.mod-who time{ color:var(--text-dim); }
+.mod-new-dot{ padding:1px 6px; border-radius:999px; font-size:9.5px; font-weight:900; letter-spacing:0.5px; text-transform:uppercase; color:#fff; background:#e0505a; }
+#mod-modal .mod-tag{ flex-shrink:0; max-width:40%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#mod-modal .mod-flag-text{ margin:0; }
+#mod-modal .mod-report-quote{ margin:0; }
+#mod-modal .mod-flag-actions{ flex-direction:row; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
+#mod-modal .mod-act{ min-width:0; padding:6px 11px; }
+.mod-report-gone{ font-size:11.5px; font-weight:600; color:var(--text-faint); }
+#mod-modal .mod-ban-reason{ font-size:12.5px; line-height:1.45; }
+
+/* Active bans and mutes: how much of it has been served. */
+.mod-term{ display:grid; grid-template-columns:1fr auto; grid-template-areas:"bar act" "txt act"; align-items:center; gap:6px 12px; }
+.mod-term-bar{ grid-area:bar; height:5px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; }
+.mod-term-bar i{ display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg, #e3ac45, #ffcf86); }
+.mod-ban-row.perm .mod-term-bar i{ background:linear-gradient(90deg, #b3263a, #ff5a6a); }
+.mod-term > span{ grid-area:txt; font-size:11.5px; font-weight:700; color:var(--text-faint); }
+.mod-term .mod-act{ grid-area:act; }
+
+/* Ban and mute forms stay folded away until you need one. */
+.mod-new{
+  appearance:none; display:flex; align-items:center; justify-content:center; gap:7px; width:100%; margin-bottom:12px; padding:9px;
+  border-radius:12px; font:inherit; font-size:13px; font-weight:800; cursor:pointer;
+}
+.mod-new svg{ width:16px; height:16px; }
+#mod-modal .mod-pane .mod-ban-form{ display:none; }
+#mod-modal .mod-pane.form-open .mod-ban-form{ display:grid; grid-template-columns:1fr; animation:mod-form-in .3s cubic-bezier(.2,.9,.25,1) both; }
+#mod-modal .mod-pane.form-open .mod-new{ display:none; }
+#mod-modal .mod-ban-foot{ flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+#mod-modal .mod-preview{ flex:1 1 100%; }
+@keyframes mod-form-in{ from{ opacity:0; transform:translateY(-6px); } to{ opacity:1; transform:none; } }
+#mod-modal .mod-discord{ max-width:none; padding:14px; border-radius:14px; background:rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.08); }
+
+.mod-empty-ic{ display:grid; place-items:center; width:44px; height:44px; margin:0 auto 10px; border-radius:14px; background:rgba(255,255,255,0.06); }
+.mod-empty-ic svg{ width:22px; height:22px; fill:rgba(255,255,255,0.45); }
+
+.mod-panel > .mod-rz{ display:block; position:absolute !important; z-index:6 !important; width:16px; height:16px; }
+.mod-panel > .mod-rz.nw{ top:0; left:0; cursor:nwse-resize; }
+.mod-panel > .mod-rz.ne{ top:0; right:0; cursor:nesw-resize; }
+.mod-panel > .mod-rz.sw{ bottom:0; left:0; cursor:nesw-resize; }
+.mod-panel > .mod-rz.se{ bottom:0; right:0; cursor:nwse-resize; }
+.mod-panel > .mod-rz.se::after{
   content:''; position:absolute; right:4px; bottom:4px; width:8px; height:8px;
   border-right:2px solid rgba(255,255,255,0.35); border-bottom:2px solid rgba(255,255,255,0.35);
   border-bottom-right-radius:4px;
 }
-#mod-modal.floating .mod-panel > .mod-rz.se:hover::after{ border-color:rgba(255,255,255,0.7); }
+.mod-panel > .mod-rz.se:hover::after{ border-color:rgba(255,255,255,0.7); }
 
 /* Admin panel buttons (beta): the top bar's purple fill with the black stroke. */
-body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn){
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn, .mod-icon-btn, .mod-new){
   background:linear-gradient(160deg, var(--btn-top, #835ecd), var(--btn-bot, #3c295c)) !important;
   border:2px solid #000 !important;
   color:#fff !important;
@@ -4103,21 +4166,54 @@ body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filt
   paint-order:stroke fill;
   transition:filter .15s, transform .15s;
 }
-body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn):hover:not(:disabled){
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn, .mod-icon-btn, .mod-new):hover:not(:disabled){
   filter:brightness(1.14);
 }
-body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn):active:not(:disabled){
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn, .mod-icon-btn, .mod-new):active:not(:disabled){
   transform:scale(0.97);
 }
-body.beta-layout #mod-modal :is(.mod-tab.active, .mod-quick button.on, .mod-filter button.on){
+body.beta-layout #mod-modal :is(.mod-tab.active, .mod-icon-btn.active, .mod-quick button.on, .mod-filter button.on){
   filter:brightness(1.22);
   box-shadow:inset 0 0 0 2px rgba(255,255,255,0.5), 0 0 14px color-mix(in srgb, var(--accent) 45%, transparent) !important;
 }
-body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn) svg{
+body.beta-layout #mod-modal :is(.mod-tab, .mod-act, .mod-quick button, .mod-filter button, .pill-btn, .mod-icon-btn, .mod-new) svg{
   fill:#fff !important; stroke:#000; stroke-width:1.6px; stroke-linejoin:round; paint-order:stroke fill; overflow:visible;
 }
-body.beta-layout #mod-modal .mod-count{ -webkit-text-stroke:0; background:rgba(0,0,0,0.45); }
-body.beta-layout #mod-modal .mod-tab[data-tab="flags"] .mod-count.has{ background:#e0505a; }
+body.beta-layout #mod-modal .mod-filter button span{ -webkit-text-stroke:0; color:rgba(255,255,255,0.75); }
+
+/* Beta: live chat sits in the same box as the admin panel. */
+body.beta-layout #live-chat.liquid-glass{ width:400px; border-radius:18px; box-shadow:0 18px 48px rgba(0,0,0,0.55); }
+body.beta-layout #live-chat :is(.live-chat-title, .live-chat-sub){ overflow:hidden; text-overflow:ellipsis; }
+body.beta-layout #live-chat.liquid-glass > .lq-tint{ background:linear-gradient(160deg, rgba(32,26,54,0.80), rgba(12,10,22,0.88)) !important; }
+body.beta-layout #live-chat.liquid-glass > .lq-backdrop{ -webkit-backdrop-filter:blur(2.82px) saturate(1.7) !important; backdrop-filter:blur(2.82px) saturate(1.7) !important; }
+body.beta-layout #live-chat .live-chat-head{ padding:14px 12px 12px 14px; border-bottom-color:rgba(255,255,255,0.08); }
+.lc-icon{
+  width:34px; height:34px; border-radius:10px; display:grid; place-items:center; flex-shrink:0;
+  background:linear-gradient(135deg, #a77bff, #5b34c9); box-shadow:0 6px 18px rgba(124,77,255,0.4);
+}
+.lc-icon svg{ width:19px; height:19px; fill:#fff; }
+body.beta-layout #live-chat .live-chat-title{ font-size:16px; font-weight:900; letter-spacing:0.2px; }
+body.beta-layout #live-chat .live-chat-sub{ font-size:12px; font-weight:600; color:var(--text-dim); }
+
+/* Beta: the admin panel and live chat drop down out of their top-bar button. */
+#mod-modal .mod-panel.sc-pop, #live-chat.sc-pop{
+  animation:sc-pop-down .52s cubic-bezier(.2,.9,.25,1) both;
+  transform-origin:var(--pop-ox, 50%) -30px;
+}
+:is(#mod-modal .mod-panel, #live-chat).sc-pop > :is(.mod-head, .mod-tabs, .mod-pane, .live-chat-head, .lc-note, .live-chat-list, .live-chat-compose){
+  animation:sc-pop-child .4s cubic-bezier(.2,.9,.25,1) both;
+}
+:is(#mod-modal .mod-panel, #live-chat).sc-pop > :is(.mod-head, .live-chat-head){ animation-delay:70ms; }
+:is(#mod-modal .mod-panel, #live-chat).sc-pop > :is(.mod-tabs, .lc-note){ animation-delay:120ms; }
+:is(#mod-modal .mod-panel, #live-chat).sc-pop > :is(.mod-pane, .live-chat-list){ animation-delay:170ms; }
+:is(#mod-modal .mod-panel, #live-chat).sc-pop > .live-chat-compose{ animation-delay:220ms; }
+@keyframes sc-pop-down{
+  0%{ opacity:0; transform:translateY(-14px) scale(0.92, 0.55); }
+  55%{ opacity:1; transform:translateY(3px) scale(1.01, 1.025); }
+  80%{ transform:translateY(-1px) scale(0.998, 0.994); }
+  100%{ opacity:1; transform:none; }
+}
+@keyframes sc-pop-child{ from{ opacity:0; transform:translateY(-8px); } to{ opacity:1; transform:none; } }
 
 /* ---------- ban screen ---------- */
 .ban-screen{ z-index:20000; background:radial-gradient(circle at 50% 35%, rgba(70,14,26,0.92), rgba(6,4,12,0.97) 70%) !important; }

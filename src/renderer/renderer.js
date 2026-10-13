@@ -5229,6 +5229,20 @@ function openReport(person) { reportApi?.open(person); }
 // ---------- Moderation panel (head mods + in-game admins) ----------
 // Purely a view: every action is a request the server checks against the
 // two mod accounts, so showing this to anyone else would get them nothing.
+/** Beta: drop a floating panel down out of the top-bar button that opened it. */
+function popDown(panel, chip) {
+  if (!panel || !betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = panel.getBoundingClientRect();
+  const c = chip?.getBoundingClientRect();
+  const ox = c ? Math.max(0, Math.min(r.width, c.left + c.width / 2 - r.left)) : r.width / 2;
+  panel.style.setProperty('--pop-ox', `${Math.round(ox)}px`);
+  panel.classList.remove('sc-pop');
+  void panel.offsetWidth;
+  panel.classList.add('sc-pop');
+  clearTimeout(panel._popTimer);
+  panel._popTimer = setTimeout(() => panel.classList.remove('sc-pop'), 900);
+}
+
 (function wireModeration() {
   const chip = document.getElementById('mod-chip');
   const modal = document.getElementById('mod-modal');
@@ -5248,6 +5262,8 @@ function openReport(person) { reportApi?.open(person); }
   const ICON_DEL = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
   const ICON_IMG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z"/></svg>';
   const ICON_VID = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>';
+  const ICON_OK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.9-4.9 1.4 1.4-6.3 6.3z"/></svg>';
+  const ICON_FIND = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>';
 
   let isMod = false;
   let data = { flags: [], reports: [], bans: [], mutes: [], webhook: false };
@@ -5271,6 +5287,15 @@ function openReport(person) { reportApi?.open(person); }
       : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   };
   const cleanErr = (err) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const ago = (t) => {
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+    return new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+  const stamp = (t) => `<time title="${escapeHtml(when(t))}">${escapeHtml(ago(t))}</time>`;
 
   function setAccess(on) {
     isMod = !!on;
@@ -5306,19 +5331,21 @@ function openReport(person) { reportApi?.open(person); }
       ['mod-bans-n', data.bans.length], ['mod-mutes-n', data.mutes.length]];
     for (const [id, n] of counts) {
       $(id).textContent = String(n);
-      $(id).classList.toggle('has', n > 0 && (id === 'mod-flags-n' || id === 'mod-reports-n'));
+      $(id).closest('.mod-tab').classList.toggle('has', n > 0 && (id === 'mod-flags-n' || id === 'mod-reports-n'));
     }
     $('mod-ff-all').textContent = String(data.flags.length);
     $('mod-ff-hate').textContent = String(data.flags.filter(loud).length);
     $('mod-ff-swear').textContent = String(data.flags.length - data.flags.filter(loud).length);
   }
 
-  const actBtns = (extra = '') => `
+  const actBtns = () => `
     <div class="mod-flag-actions">
-      <button type="button" class="mod-act ban" data-act="ban">${ICON_BAN}Ban</button>
+      <button type="button" class="mod-act" data-act="delete" title="Delete">${ICON_DEL}Delete</button>
       <button type="button" class="mod-act mute" data-act="mute">${ICON_MUTE}Mute</button>
-      <button type="button" class="mod-act" data-act="delete">${ICON_DEL}Delete</button>${extra}
+      <button type="button" class="mod-act ban" data-act="ban">${ICON_BAN}Ban</button>
     </div>`;
+  const newDot = (on) => (on ? '<span class="mod-new-dot" title="New since you last looked">New</span>' : '');
+  const empty = (icon, title, text) => `<div class="mod-empty"><span class="mod-empty-ic">${icon}</span><b>${title}</b>${text}</div>`;
 
   function renderFlags() {
     const q = search.value.trim().toLowerCase();
@@ -5327,22 +5354,21 @@ function openReport(person) { reportApi?.open(person); }
       && (!q || `${f.name} ${f.where} ${f.text}`.toLowerCase().includes(q)));
     if (!rows.length) {
       flagList.innerHTML = data.flags.length
-        ? '<div class="mod-empty">Nothing matches.</div>'
-        : '<div class="mod-empty"><b>No flagged messages</b>Slurs, hate speech, telling people to hurt themselves and swearing in live chat are stopped before they send and show up here.</div>';
+        ? empty(ICON_FIND, 'Nothing matches', 'Try a different name or word.')
+        : empty(ICON_OK, 'All clear', 'Slurs, hate speech, telling people to hurt themselves and swearing in live chat are stopped before they send and show up here.');
       return;
     }
     flagList.innerHTML = rows.map(f => `
-      <div class="mod-flag ${f.at > seen && loud(f) ? 'new' : ''} ${loud(f) ? '' : 'swear'}" data-id="${escapeHtml(f.id)}">
-        <img class="mod-face" src="${frAvatar(f.from)}" alt="">
-        <div class="mod-flag-body">
-          <div class="mod-flag-meta">
-            <b>${escapeHtml(f.name)}</b>
-            <span class="mod-tag">${escapeHtml(f.where)}</span>
-            <span class="mod-tag ${loud(f) ? 'why' : 'swear'}">${escapeHtml(f.matched || 'flagged')}</span>
-            <span>${escapeHtml(when(f.at))}</span>
+      <div class="mod-card mod-flag ${f.at > seen && loud(f) ? 'new' : ''} ${loud(f) ? '' : 'swear'}" data-id="${escapeHtml(f.id)}">
+        <div class="mod-card-head">
+          <img class="mod-face" src="${frAvatar(f.from)}" alt="">
+          <div class="mod-who">
+            <b>${escapeHtml(f.name)}${newDot(f.at > seen && loud(f))}</b>
+            <span>${escapeHtml(f.where)} · ${stamp(f.at)}</span>
           </div>
-          <div class="mod-flag-text">${escapeHtml(f.text)}</div>
+          <span class="mod-tag ${loud(f) ? 'why' : 'swear'}">${escapeHtml(f.matched || 'flagged')}</span>
         </div>
+        <div class="mod-flag-text">${escapeHtml(f.text)}</div>
         ${actBtns()}
       </div>`).join('');
   }
@@ -5353,88 +5379,75 @@ function openReport(person) { reportApi?.open(person); }
     const rows = data.reports.filter(r => !q || `${r.targetName} ${r.fromName} ${r.reasonLabel} ${r.details} ${r.context?.text || ''}`.toLowerCase().includes(q));
     if (!rows.length) {
       reportList.innerHTML = data.reports.length
-        ? '<div class="mod-empty">Nothing matches that search.</div>'
-        : '<div class="mod-empty"><b>No reports</b>When someone reports a player from live chat, a DM or the online list, it shows up here with any screenshots or clips they attached.</div>';
+        ? empty(ICON_FIND, 'Nothing matches', 'Try a different name, reason or word.')
+        : empty(ICON_OK, 'No reports', 'When someone reports a player from live chat, a DM or the online list, it shows up here with any screenshots or clips they attached.');
       return;
     }
     reportList.innerHTML = rows.map(r => `
-      <div class="mod-report ${r.at > seen ? 'new' : ''}" data-id="${escapeHtml(r.id)}">
-        <div class="mod-report-main">
+      <div class="mod-card mod-report ${r.at > seen ? 'new' : ''}" data-id="${escapeHtml(r.id)}">
+        <div class="mod-card-head">
           <img class="mod-face" src="${frAvatar(r.target)}" alt="">
-          <div class="mod-flag-body">
-            <div class="mod-flag-meta">
-              <b>${escapeHtml(r.targetName)}</b>
-              <span class="mod-tag why">${escapeHtml(r.reasonLabel)}</span>
-              <span>${escapeHtml(when(r.at))}</span>
-              <span class="mod-tag">#${escapeHtml(r.id)}</span>
-            </div>
-            <div class="mod-report-by">Reported by <img src="${frAvatar(r.from)}" alt=""><b>${escapeHtml(r.fromName)}</b></div>
-            <div class="mod-report-details">${escapeHtml(r.details)}</div>
-            ${r.context?.text ? `<div class="mod-report-quote"><span>${escapeHtml(r.context.where || 'Message')}</span>${escapeHtml(r.context.text)}</div>` : ''}
-            ${r.files.length ? `<div class="mod-report-files">${r.files.map((f, i) => {
-              const cached = fileCache.get(f.id);
-              const video = f.type.startsWith('video/');
-              return `<button type="button" class="mod-file ${cached ? 'loaded' : ''}" data-file="${escapeHtml(f.id)}" title="Open">
-                ${cached && !video ? `<img src="${cached}" alt="">` : `<span class="mod-file-ic">${video ? ICON_VID : ICON_IMG}</span>`}
-                <span class="mod-file-label">${video ? 'Video' : 'Image'} ${i + 1}<em>${fmtSize(f.size)}</em></span>
-              </button>`;
-            }).join('')}</div>` : ''}
-            ${r.filesRemoved ? '<div class="mod-report-by dim">Attachments were removed to save space.</div>' : ''}
+          <div class="mod-who">
+            <b>${escapeHtml(r.targetName)}${newDot(r.at > seen)}</b>
+            <span class="mod-report-by">by <img src="${frAvatar(r.from)}" alt="">${escapeHtml(r.fromName)} · ${stamp(r.at)} · #${escapeHtml(r.id)}</span>
           </div>
+          <span class="mod-tag why">${escapeHtml(r.reasonLabel)}</span>
         </div>
+        <div class="mod-report-details">${escapeHtml(r.details)}</div>
+        ${r.context?.text ? `<div class="mod-report-quote"><span>${escapeHtml(r.context.where || 'Message')}</span>${escapeHtml(r.context.text)}</div>` : ''}
+        ${r.files.length ? `<div class="mod-report-files">${r.files.map((f, i) => {
+          const cached = fileCache.get(f.id);
+          const video = f.type.startsWith('video/');
+          return `<button type="button" class="mod-file ${cached ? 'loaded' : ''}" data-file="${escapeHtml(f.id)}" title="Open">
+            ${cached && !video ? `<img src="${cached}" alt="">` : `<span class="mod-file-ic">${video ? ICON_VID : ICON_IMG}</span>`}
+            <span class="mod-file-label">${video ? 'Video' : 'Image'} ${i + 1}<em>${fmtSize(f.size)}</em></span>
+          </button>`;
+        }).join('')}</div>` : ''}
+        ${r.filesRemoved ? '<div class="mod-report-gone">Attachments were removed to save space.</div>' : ''}
         ${actBtns()}
       </div>`).join('');
   }
 
-  function renderBans() {
-    if (!data.bans.length) {
-      banList.innerHTML = '<div class="mod-empty"><b>No active bans</b>Bans you add above show up here until they end.</div>';
-      return;
-    }
-    banList.innerHTML = data.bans.map(b => `
-      <div class="mod-ban-row" data-id="${escapeHtml(b.id)}">
-        <img class="mod-face" src="${frAvatar(b.uuid)}" alt="">
-        <div class="mod-flag-body">
-          <div class="mod-flag-meta">
-            <b>${escapeHtml(b.name)}</b>
-            <span class="mod-tag ${b.until ? 'temp' : 'perm'}">${escapeHtml(b.until ? b.length : 'Permanent')}</span>
-            <span class="mod-tag">ID ${escapeHtml(b.id)}</span>
+  /** One active ban or mute: who, how long, why, and how much of it is left. */
+  function sentenceCard(p, key, act) {
+    const temp = !!p.until;
+    const served = temp ? Math.min(100, Math.max(0, ((Date.now() - p.at) / Math.max(1, p.until - p.at)) * 100)) : 100;
+    return `
+      <div class="mod-card mod-ban-row ${temp ? 'temp' : 'perm'}" ${key}>
+        <div class="mod-card-head">
+          <img class="mod-face" src="${frAvatar(p.uuid)}" alt="">
+          <div class="mod-who">
+            <b>${escapeHtml(p.name)}</b>
+            <span>${p.byName ? `by ${escapeHtml(p.byName)} · ` : ''}${stamp(p.at)}${p.id ? ` · #${escapeHtml(p.id)}` : ''}</span>
           </div>
-          <div class="mod-ban-reason">${escapeHtml(b.reason)}</div>
-          <div class="mod-ban-when">By ${escapeHtml(b.byName || 'a mod')} · ${escapeHtml(when(b.at))} · ${b.until ? `ends ${escapeHtml(when(b.until))} (${escapeHtml(fmtLeft(b.until - Date.now()))} left)` : 'never ends'}</div>
+          <span class="mod-tag ${temp ? 'temp' : 'perm'}">${escapeHtml(temp ? p.length : 'Permanent')}</span>
         </div>
-        <div class="mod-flag-actions">
-          <button type="button" class="mod-act" data-act="unban">Unban</button>
+        ${p.reason ? `<div class="mod-ban-reason">${escapeHtml(p.reason)}</div>` : ''}
+        <div class="mod-term">
+          <div class="mod-term-bar"><i style="width:${served.toFixed(1)}%"></i></div>
+          <span>${temp ? `${escapeHtml(fmtLeft(p.until - Date.now()))} left · ends ${escapeHtml(when(p.until))}` : 'Never ends'}</span>
+          <button type="button" class="mod-act" data-act="${act}">${act === 'unban' ? 'Unban' : 'Unmute'}</button>
         </div>
-      </div>`).join('');
+      </div>`;
+  }
+
+  function renderBans() {
+    banList.innerHTML = data.bans.length
+      ? data.bans.map(b => sentenceCard(b, `data-id="${escapeHtml(b.id)}"`, 'unban')).join('')
+      : empty(ICON_OK, 'No active bans', 'Bans you add show up here until they end.');
   }
 
   function renderMutes() {
-    if (!data.mutes.length) {
-      muteList.innerHTML = '<div class="mod-empty"><b>Nobody is muted</b>Muted players can still use the launcher, they just can\'t send messages in live chat.</div>';
-      return;
-    }
-    muteList.innerHTML = data.mutes.map(m => `
-      <div class="mod-ban-row" data-uuid="${escapeHtml(m.uuid)}">
-        <img class="mod-face" src="${frAvatar(m.uuid)}" alt="">
-        <div class="mod-flag-body">
-          <div class="mod-flag-meta">
-            <b>${escapeHtml(m.name)}</b>
-            <span class="mod-tag ${m.until ? 'temp' : 'perm'}">${escapeHtml(m.until ? m.length : 'Permanent')}</span>
-          </div>
-          ${m.reason ? `<div class="mod-ban-reason">${escapeHtml(m.reason)}</div>` : ''}
-          <div class="mod-ban-when">${m.byName ? `By ${escapeHtml(m.byName)} · ` : ''}${escapeHtml(when(m.at))} · ${m.until ? `ends ${escapeHtml(when(m.until))} (${escapeHtml(fmtLeft(m.until - Date.now()))} left)` : 'never ends'}</div>
-        </div>
-        <div class="mod-flag-actions">
-          <button type="button" class="mod-act" data-act="unmute">Unmute</button>
-        </div>
-      </div>`).join('');
+    muteList.innerHTML = data.mutes.length
+      ? data.mutes.map(m => sentenceCard(m, `data-uuid="${escapeHtml(m.uuid)}"`, 'unmute')).join('')
+      : empty(ICON_OK, 'Nobody is muted', 'Muted players can still use the launcher, they just can\'t send messages in live chat.');
   }
 
   function renderDiscord() {
     const st = $('mod-discord-status');
     st.className = `mod-discord-status ${data.webhook ? 'ok' : 'off'}`;
     st.textContent = data.webhook ? 'Discord log is connected' : 'No Discord webhook set on the server';
+    $('mod-discord-dot').className = `mod-dot ${data.webhook ? 'ok' : 'off'}`;
   }
 
   // Same rules as the server: m, h, d, w, mo, y/yr, any capitals, combos like 1d12h, or perm.
@@ -5462,6 +5475,13 @@ function openReport(person) { reportApi?.open(person); }
   function punishForm({ kind, formId, userId, durId, reasonId, previewId, quickId, goId, idle, verb, done }) {
     const form = $(formId), userIn = $(userId), durIn = $(durId), reasonIn = $(reasonId);
     const preview = $(previewId), go = $(goId);
+    const pane = form.closest('.mod-pane');
+    const setOpen = (on) => {
+      pane.classList.toggle('form-open', on);
+      if (on) userIn.focus();
+    };
+    pane.querySelector(`[data-open-form="${formId}"]`)?.addEventListener('click', () => setOpen(true));
+    form.querySelector('.mod-form-cancel')?.addEventListener('click', () => { form.reset(); uuid = null; update(); setOpen(false); });
     let uuid = null;
     const update = () => {
       const d = parseDur(durIn.value);
@@ -5501,7 +5521,7 @@ function openReport(person) { reportApi?.open(person); }
       go.textContent = kind === 'ban' ? 'Banning…' : 'Muting…';
       try {
         const res = await window.nebula.modRequest({ op: kind, username, uuid: uuid || undefined, duration, reason });
-        form.reset(); uuid = null; update();
+        form.reset(); uuid = null; update(); setOpen(false);
         done(res, username);
       } catch (err) {
         showToast(`Couldn't ${kind}`, escapeHtml(cleanErr(err)), 'error');
@@ -5519,6 +5539,7 @@ function openReport(person) { reportApi?.open(person); }
         if (!durIn.value) durIn.value = p.duration;
         update();
         showTab(kind === 'ban' ? 'bans' : 'mutes');
+        setOpen(true);
         durIn.focus();
         durIn.select();
       },
@@ -5550,7 +5571,7 @@ function openReport(person) { reportApi?.open(person); }
   });
 
   function showTab(tab) {
-    modal.querySelectorAll('.mod-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    modal.querySelectorAll('[data-tab]').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     modal.querySelectorAll('.mod-pane').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== tab));
   }
 
@@ -5560,22 +5581,18 @@ function openReport(person) { reportApi?.open(person); }
     localStorage.setItem(SEEN_KEY, String(Date.now()));
     unseen = 0; setBadge();
     modal.classList.remove('hidden');
-    if (isFloating()) placeBox(boxNow());
+    placeBox(boxNow());
+    popDown(panel, chip);
     renderAll();
     load();
   }
   const close = () => modal.classList.add('hidden');
 
-  // ---- pop out: a tall floating box you can drag and resize, like live chat ----
+  // A tall floating box you can drag and resize, like live chat.
   const panel = modal.querySelector('.mod-panel');
   const head = modal.querySelector('.mod-head');
-  const popBtn = $('mod-pop');
-  const FLOAT_KEY = 'solar.mod.float';
   const BOX_KEY = 'solar.mod.box';
   const MIN_W = 380, MIN_H = 360;
-  const ICON_POP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42L17.59 5H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>';
-  const ICON_DOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h14V5H5zm3 3h8v8H8V8z"/></svg>';
-  const isFloating = () => modal.classList.contains('floating');
   const defaultBox = () => ({ x: 84, y: 52, w: 460, h: Math.min(760, window.innerHeight - 70) });
   const boxNow = () => {
     try {
@@ -5597,18 +5614,8 @@ function openReport(person) { reportApi?.open(person); }
       localStorage.setItem(BOX_KEY, JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }));
     } catch { /* full */ }
   };
-  function setFloating(on) {
-    modal.classList.toggle('floating', on);
-    if (on) placeBox(boxNow());
-    else ['left', 'top', 'width', 'height'].forEach((k) => panel.style.removeProperty(k));
-    popBtn.innerHTML = on ? ICON_DOCK : ICON_POP;
-    popBtn.title = on ? 'Put it back in the middle' : 'Pop out into a box you can move';
-    try { localStorage.setItem(FLOAT_KEY, on ? '1' : '0'); } catch { /* full */ }
-  }
-  setFloating(localStorage.getItem(FLOAT_KEY) === '1');
-  popBtn.addEventListener('click', () => setFloating(!isFloating()));
   head.addEventListener('mousedown', (e) => {
-    if (!isFloating() || e.button !== 0 || e.target.closest('button, input')) return;
+    if (e.button !== 0 || e.target.closest('button, input')) return;
     e.preventDefault();
     const r = panel.getBoundingClientRect();
     const ox = e.clientX - r.left, oy = e.clientY - r.top;
@@ -5624,7 +5631,7 @@ function openReport(person) { reportApi?.open(person); }
     window.addEventListener('mouseup', up);
   });
   panel.querySelectorAll('.mod-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
-    if (!isFloating() || e.button !== 0) return;
+    if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     const dir = grip.dataset.rz;
     const east = dir.includes('e'), south = dir.includes('s');
@@ -5654,7 +5661,7 @@ function openReport(person) { reportApi?.open(person); }
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   }));
-  window.addEventListener('resize', () => { if (isFloating() && isOpen()) placeBox(boxNow()); });
+  window.addEventListener('resize', () => { if (isOpen()) placeBox(boxNow()); });
 
   // ---- evidence viewer ----
   const viewer = $('mod-viewer');
@@ -5699,7 +5706,7 @@ function openReport(person) { reportApi?.open(person); }
     else if (isOpen()) close();
   });
   refreshBtn.addEventListener('click', () => load());
-  modal.querySelectorAll('.mod-tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+  modal.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
   search.addEventListener('input', renderFlags);
   reportSearch.addEventListener('input', renderReports);
   $('mod-flag-filter').addEventListener('click', (e) => {
@@ -6011,16 +6018,25 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   const list = document.getElementById('online-pop-list');
   const sub = document.getElementById('online-pop-sub');
   const search = document.getElementById('online-pop-search');
+  const viewsEl = document.getElementById('online-pop-views');
   let data = null;
   let timer = null;
-  let animateNext = false;
+  let view = 'all';
   const isOpen = () => !pop.classList.contains('hidden');
   const ROLE_ORDER = ['owner', 'admin', 'verified', 'solar+'];
   const ROLE_GROUP = { owner: 'Owners', admin: 'Admins', verified: 'Verified', 'solar+': 'Solar+' };
+  const ROLE_ICON = {
+    owner: '<path d="M3 7l4.5 3.5L12 4l4.5 6.5L21 7l-2 11H5L3 7zm2.3 13h13.4v2H5.3v-2z"/>',
+    admin: '<path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/>',
+    verified: '<path d="M23 12l-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12zm-12.91 4.72-3.8-3.81 1.48-1.48 2.32 2.33 5.85-5.87 1.48 1.48-7.33 7.35z"/>',
+    'solar+': '<path d="M12 2l2.6 6.9L22 9.3l-5.7 4.6 1.9 7.1L12 17l-6.2 4 1.9-7.1L2 9.3l7.4-.4z"/>',
+  };
+  const roleKey = (p) => String(p.role || '').toLowerCase();
   const roleRank = (p) => {
-    const i = ROLE_ORDER.indexOf(String(p.role || '').toLowerCase());
+    const i = ROLE_ORDER.indexOf(roleKey(p));
     return i < 0 ? ROLE_ORDER.length : i;
   };
+  const inView = (p) => view === 'all' || (view === 'ingame' ? p.inGame : !!p.following && !p.self);
 
   function place() {
     const r = chip.getBoundingClientRect();
@@ -6036,53 +6052,63 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     const inGame = data.people.filter(p => p.inGame).length;
     const beta = betaLayoutOn();
     pop.classList.toggle('op-beta', beta);
-    sub.textContent = `${data.total} online · ${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+    if (beta) {
+      sub.textContent = `${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+      document.getElementById('op-n-all').textContent = String(data.total);
+      document.getElementById('op-n-ingame').textContent = String(inGame);
+      document.getElementById('op-n-following').textContent = String(data.people.filter(p => p.following && !p.self).length);
+      viewsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+    } else {
+      sub.textContent = `${data.total} online · ${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+    }
     const rows = data.people
-      .filter(p => !q || p.name.toLowerCase().includes(q))
+      .filter(p => (!q || p.name.toLowerCase().includes(q)) && (!beta || inView(p)))
       .sort(beta
         ? (a, b) => (roleRank(a) - roleRank(b)) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name)
         : (a, b) => (!!b.self - !!a.self) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name));
     if (!rows.length) {
-      list.innerHTML = `<p class="op-empty">${q ? 'Nobody by that name is online.' : 'Nobody else is showing as online right now.'}</p>`;
+      const why = q ? 'Nobody by that name is online.'
+        : beta && view === 'ingame' ? 'Nobody is in a game right now.'
+        : beta && view === 'following' ? "Nobody you follow is online right now."
+        : 'Nobody else is showing as online right now.';
+      list.innerHTML = `<p class="op-empty">${why}</p>`;
       return;
     }
     list.innerHTML = '';
-    if (beta && animateNext) {
-      animateNext = false;
-      list.classList.remove('op-anim');
-      void list.offsetWidth;
-      list.classList.add('op-anim');
-      clearTimeout(list._animTimer);
-      list._animTimer = setTimeout(() => list.classList.remove('op-anim'), 1200);
-    }
     let group = -1;
-    let order = 0;
     for (const p of rows) {
       if (beta && roleRank(p) !== group) {
         group = roleRank(p);
         const key = ROLE_ORDER[group] || 'member';
         const head = document.createElement('div');
         head.className = 'op-group';
-        head.dataset.role = key;
-        head.style.setProperty('--i', Math.min(order++, 16));
-        head.innerHTML = `<span>${ROLE_GROUP[key] || 'Members'}</span><em>${rows.filter(x => roleRank(x) === group).length}</em>`;
+        head.textContent = `${ROLE_GROUP[key] || 'Members'} — ${rows.filter(x => roleRank(x) === group).length}`;
         list.appendChild(head);
       }
       const row = document.createElement('div');
       row.className = 'op-row';
-      if (beta) {
-        row.style.setProperty('--i', Math.min(order++, 16));
-        row.classList.toggle('is-self', !!p.self);
-      }
-      const role = p.role && p.role !== 'member' ? `<span class="op-role" data-role="${escapeHtml(String(p.role).toLowerCase())}">${escapeHtml(p.role)}</span>` : '';
       const status = p.inGame ? '<span class="op-status ingame"><i></i>In game</span>' : '<span class="op-status"><i></i>In the launcher</span>';
-      const action = p.self ? '<span class="op-tag">You</span>'
-        : p.following && p.follower ? '<span class="op-tag friends">Friends</span>'
-        : p.following ? '<button class="op-act" data-act="menu">Following</button>'
-        : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
       const face = `<img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}>`;
-      row.innerHTML = `${beta ? `<span class="op-face-wrap">${face}<i class="op-dot${p.inGame ? ' ingame' : ''}"></i></span>` : face}
-        <div class="op-info"><span class="op-name"><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${role}${p.self ? '' : reportFlag(p.uuid, p.name)}</span>${status}</div>${action}`;
+      if (beta) {
+        const key = roleKey(p);
+        const icon = ROLE_ICON[key] ? `<svg class="op-badge" viewBox="0 0 24 24" aria-label="${escapeHtml(p.role)}"><title>${escapeHtml(p.role)}</title>${ROLE_ICON[key]}</svg>` : '';
+        const action = p.self ? ''
+          : p.following && p.follower ? '<span class="op-tag friends" title="You follow each other">Friends</span>'
+          : p.following ? '<button class="op-act" data-act="menu">Following</button>'
+          : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
+        row.dataset.role = ROLE_ICON[key] ? key : 'member';
+        row.innerHTML = `<span class="op-face-wrap">${face}<i class="op-dot${p.inGame ? ' ingame' : ''}"></i></span>
+          <div class="op-info"><span class="op-name"><span class="op-nick" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${icon}${p.self ? '<span class="op-you">you</span>' : reportFlag(p.uuid, p.name)}</span>
+          <span class="op-status">${p.inGame ? 'Playing Minecraft' : 'In the launcher'}</span></div>${action}`;
+      } else {
+        const role = p.role && p.role !== 'member' ? `<span class="op-role" data-role="${escapeHtml(roleKey(p))}">${escapeHtml(p.role)}</span>` : '';
+        const action = p.self ? '<span class="op-tag">You</span>'
+          : p.following && p.follower ? '<span class="op-tag friends">Friends</span>'
+          : p.following ? '<button class="op-act" data-act="menu">Following</button>'
+          : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
+        row.innerHTML = `${face}
+          <div class="op-info"><span class="op-name"><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${role}${p.self ? '' : reportFlag(p.uuid, p.name)}</span>${status}</div>${action}`;
+      }
       row.querySelector('.op-face').onerror = (e) => { e.target.style.visibility = 'hidden'; };
       if (!p.self) {
         row.title = 'Right-click for options';
@@ -6120,7 +6146,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   }
 
   function open() {
-    animateNext = true;
+    view = 'all';
     pop.classList.toggle('op-beta', betaLayoutOn());
     pop.classList.remove('hidden');
     chip.classList.add('open');
@@ -6140,6 +6166,12 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   chip.addEventListener('click', () => (isOpen() ? close() : open()));
   chip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chip.click(); } });
   document.getElementById('online-pop-close').addEventListener('click', close);
+  viewsEl?.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-view]');
+    if (!b) return;
+    view = b.dataset.view;
+    render();
+  });
   search.addEventListener('input', render);
   search.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   document.addEventListener('mousedown', (e) => {
@@ -9790,6 +9822,7 @@ function showPeopleMenu(person, x, y) {
     panel.classList.remove('hidden');
     restoreSize();
     restorePos();
+    popDown(panel, chip);
     chip.classList.add('open');
     render.scrolled = false;
     render();
