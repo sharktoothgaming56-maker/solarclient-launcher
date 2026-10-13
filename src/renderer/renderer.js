@@ -371,7 +371,7 @@ function renderCustomizeNow() {
   const custom = document.createElement('div');
   custom.className = 'bg-preset' + (theme.bg === 'custom' ? ' active' : '');
   const hasImg = !!theme.customBgUrl;
-  custom.innerHTML = `<div class="thumb custom-thumb${hasImg ? ' has-image' : ''}">ï¼‹</div><div class="label">Your photo</div>${hasImg ? '<div class="bg-custom-remove">Remove photo</div><div class="bg-custom-crop">Adjust crop</div>' : ''}`;
+  custom.innerHTML = `<div class="thumb custom-thumb${hasImg ? ' has-image' : ''}">＋</div><div class="label">Your photo</div>${hasImg ? '<div class="bg-custom-remove">Remove photo</div><div class="bg-custom-crop">Adjust crop</div>' : ''}`;
   if (hasImg) custom.querySelector('.thumb').style.backgroundImage = `url("${theme.customBgUrl}")`;
   custom.querySelector('.thumb').addEventListener('click', async () => {
     if (theme.customBgUrl && theme.bg !== 'custom') { theme.bg = 'custom'; saveTheme(); applyTheme(); renderCustomize(); return; }
@@ -471,6 +471,7 @@ function renderCustomizeNow() {
     const sw = document.createElement('div');
     sw.className = 'accent-swatch' + (theme.accent === a.id ? ' active' : '');
     sw.title = a.name;
+    sw.dataset.name = a.name;
     sw.style.background = a.btn ? `linear-gradient(135deg, ${a.btn[0]}, ${a.btn[1]})` : `linear-gradient(135deg, ${a.a}, ${a.b})`;
     sw.style.color = a.a;
     sw.addEventListener('click', () => { theme.accent = a.id; saveTheme(); applyTheme(); renderCustomize(); });
@@ -480,6 +481,7 @@ function renderCustomizeNow() {
   const pickHex = /^#[0-9a-f]{6}$/i.test(theme.customAccent || '') ? theme.customAccent : '#835ecd';
   wheel.className = 'accent-swatch accent-wheel' + (theme.accent === 'custom' ? ' active' : '');
   wheel.title = 'Pick any color';
+  wheel.dataset.name = 'Custom';
   wheel.style.color = pickHex;
   wheel.style.setProperty('--wheel-pick', pickHex);
   wheel.innerHTML = `<input type="color" value="${pickHex}" aria-label="Pick any accent color">`;
@@ -490,6 +492,7 @@ function renderCustomizeNow() {
     wheel.style.setProperty('--wheel-pick', picker.value);
     row.querySelectorAll('.accent-swatch').forEach((s) => s.classList.toggle('active', s === wheel));
     applyTheme();
+    if (betaLayoutOn()) cuPaintTop();
   });
   picker.addEventListener('change', () => { saveTheme(); renderCustomize(); });
   row.appendChild(wheel);
@@ -504,6 +507,7 @@ function renderCustomizeNow() {
   document.getElementById('scene-dim').value = theme.sceneDim;
   document.getElementById('scene-dim-label').textContent = theme.sceneDim;
   syncLiquidOpticsUI();
+  if (betaLayoutOn()) cuPaint();
 }
 
 // ---------- background crop tool ----------
@@ -657,6 +661,235 @@ function wireLiquidOptics() {
 }
 wireLiquidOptics();
 
+// ---------- customize extras (beta): themes, live preview, share codes ----------
+const CU_THEMES = [
+  { id: 'solar', name: 'Solar', bg: 'nebula', accent: 'royal', alpha: 34, sceneDim: 9 },
+  { id: 'pop', name: 'Nebula Pop', bg: 'nebula', accent: 'nebula', alpha: 34, sceneDim: 9 },
+  { id: 'meadow', name: 'Meadow', bg: 'plains', accent: 'aurora', alpha: 48, sceneDim: 34 },
+  { id: 'golden', name: 'Golden Hour', bg: 'sunset', accent: 'gold', alpha: 46, sceneDim: 30 },
+  { id: 'sakura', name: 'Sakura', bg: 'cherry', accent: 'rose', alpha: 48, sceneDim: 36 },
+  { id: 'frostbite', name: 'Frostbite', bg: 'frozen', accent: 'frost', alpha: 48, sceneDim: 36 },
+  { id: 'abyss', name: 'Abyss', bg: 'ocean', accent: 'ocean', alpha: 46, sceneDim: 28 },
+  { id: 'inferno', name: 'Inferno', bg: 'nether', accent: 'ember', alpha: 46, sceneDim: 30 },
+  { id: 'ender', name: 'Ender', bg: 'end', accent: 'nebula', alpha: 42, sceneDim: 16 },
+  { id: 'midnight', name: 'Midnight', bg: 'void', accent: 'ocean', alpha: 52, sceneDim: 9 },
+];
+const CU_KEYS = ['bg', 'accent', 'customAccent', 'alpha', 'sceneDim', 'launchStyle'];
+const CU_HEX = /^#[0-9a-f]{6}$/i;
+const cuSnapshot = () => Object.fromEntries(CU_KEYS.map((k) => [k, theme[k]]));
+const cuMatch = () => CU_THEMES.find((t) => t.bg === theme.bg && t.accent === theme.accent) || null;
+
+// CSS declarations (not a shorthand value): scene images can be several layers.
+function cuBgFill(id, accentA) {
+  const img = (src, pos) => `background-color:#0c0818;background-image:${src};background-size:cover;background-repeat:no-repeat;background-position:${pos}`;
+  if (id === 'custom' && theme.customBgUrl) return img(`url("${theme.customBgUrl}")`, `${theme.customBgPosX ?? 50}% ${theme.customBgPosY ?? 50}%`);
+  const bg = window.NEBULA_BACKGROUNDS?.[id];
+  if (bg?.kind === 'scene' && typeof bg.make === 'function') {
+    if (!sceneCache[id]) sceneCache[id] = bg.make();
+    return img(sceneCache[id], 'center bottom');
+  }
+  if (bg?.kind === 'void') return 'background:#0a0714';
+  return `background:radial-gradient(circle at 30% 30%, ${accentA}, #1a1030 70%), #0c0818`;
+}
+
+function cuApply(next, label) {
+  const before = cuSnapshot();
+  Object.assign(theme, next);
+  saveTheme();
+  applyTheme();
+  renderCustomize();
+  if (!label) return;
+  const el = showToast(escapeHtml(label), '<button type="button" class="cu-undo">Undo</button>', 'success');
+  el?.querySelector('.cu-undo')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    Object.assign(theme, before);
+    saveTheme();
+    applyTheme();
+    renderCustomize();
+    el.remove();
+  });
+}
+
+function cuPaintTop() {
+  const pv = document.getElementById('cu-pv-bg');
+  if (!pv) return;
+  const accent = currentAccent();
+  pv.style.cssText = `${cuBgFill(theme.bg, accent.a)};image-rendering:${theme.bg === 'custom' ? 'auto' : 'pixelated'}`;
+  pv.parentElement.style.setProperty('--pv-dim', String((theme.sceneDim || 0) / 100));
+  pv.parentElement.style.setProperty('--pv-alpha', String((theme.alpha || 34) / 100));
+  const match = cuMatch();
+  const bgName = theme.bg === 'custom' ? 'Your photo' : (window.NEBULA_BACKGROUNDS?.[theme.bg]?.name || 'Solar');
+  document.getElementById('cu-top-name').textContent = match ? match.name : 'Custom mix';
+  document.getElementById('cu-top-sub').textContent = `${bgName} · ${accent.name} accent · ${theme.alpha}% glass`;
+  const hex = document.getElementById('cu-hex');
+  if (hex && document.activeElement !== hex) hex.value = accent.a;
+  document.getElementById('cu-hex-dot')?.style.setProperty('background', `linear-gradient(135deg, ${accent.a}, ${accent.b})`);
+}
+
+function cuPaint() {
+  cuPaintTop();
+  const grid = document.getElementById('cu-theme-grid');
+  if (grid) {
+    const match = cuMatch();
+    grid.innerHTML = CU_THEMES.map((t, i) => {
+      const a = ACCENTS.find((x) => x.id === t.accent) || ACCENTS[0];
+      return `<button type="button" class="cu-theme${match?.id === t.id ? ' active' : ''}" data-theme="${t.id}" style="--ta:${a.a};--tb:${a.b};--i:${i}">
+        <span class="cu-theme-thumb"><i class="cu-theme-glass"><b></b><em></em></i></span>
+        <span class="cu-theme-name">${escapeHtml(t.name)}</span>
+      </button>`;
+    }).join('');
+    grid.querySelectorAll('.cu-theme').forEach((card) => {
+      const t = CU_THEMES.find((x) => x.id === card.dataset.theme);
+      const a = ACCENTS.find((x) => x.id === t.accent) || ACCENTS[0];
+      card.querySelector('.cu-theme-thumb').style.cssText = cuBgFill(t.bg, a.a);
+    });
+  }
+  const adv = document.getElementById('cu-adv');
+  const open = localStorage.getItem('sc.cu.adv') === '1';
+  document.getElementById('cu-glass')?.classList.toggle('cu-adv-open', open);
+  if (adv) adv.textContent = open ? 'Hide advanced dials' : 'Show advanced dials';
+  requestAnimationFrame(cuSpy);
+}
+
+function cuView() { return document.getElementById('view-customize'); }
+let cuSpyLock = null;
+function cuSpy() {
+  const view = cuView();
+  const nav = document.getElementById('cu-nav');
+  if (!view || !nav || !view.classList.contains('active')) return;
+  const top = view.getBoundingClientRect().top + nav.offsetHeight + 60;
+  let cur = null;
+  let curTop = -Infinity;
+  for (const b of nav.querySelectorAll('button[data-cu]')) {
+    const sec = document.getElementById(b.dataset.cu);
+    const y = sec?.offsetParent ? sec.getBoundingClientRect().top : Infinity;
+    if (y <= top && y > curTop + 2) { cur = b; curTop = y; }
+  }
+  if (view.scrollTop + view.clientHeight >= view.scrollHeight - 4) cur = nav.querySelector('button[data-cu]:last-of-type');
+  if (cuSpyLock && performance.now() < cuSpyLock.until) cur = cuSpyLock.btn;
+  cur ||= nav.querySelector('button[data-cu]');
+  nav.querySelectorAll('button[data-cu]').forEach((b) => b.classList.toggle('on', b === cur));
+  const ink = nav.querySelector('.cu-nav-ink');
+  if (ink && cur) {
+    ink.style.width = `${cur.offsetWidth}px`;
+    ink.style.transform = `translateX(${cur.offsetLeft}px)`;
+  }
+}
+
+function cuReadCode(raw) {
+  const s = String(raw || '').trim().replace(/^SC1:/i, '');
+  if (!s || s.length > 2000) throw new Error('That code is empty or too long.');
+  let o;
+  try { o = JSON.parse(atob(s)); } catch { throw new Error("That isn't a SolarClient theme code."); }
+  if (!o || typeof o !== 'object') throw new Error("That isn't a SolarClient theme code.");
+  const num = (v, lo, hi) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : undefined);
+  const next = {};
+  if (typeof o.bg === 'string' && o.bg !== 'custom' && window.NEBULA_BACKGROUNDS?.[o.bg]) next.bg = o.bg;
+  if (o.accent === 'custom' && CU_HEX.test(o.customAccent || '')) { next.accent = 'custom'; next.customAccent = o.customAccent; }
+  else if (ACCENTS.some((a) => a.id === o.accent)) next.accent = o.accent;
+  const alpha = num(o.alpha, 20, 90); if (alpha != null) next.alpha = alpha;
+  const dim = num(o.sceneDim, 0, 85); if (dim != null) next.sceneDim = dim;
+  if (o.launchStyle === 'purple' || o.launchStyle === 'glass') next.launchStyle = o.launchStyle;
+  const optics = {};
+  const op = o.optics && typeof o.optics === 'object' ? o.optics : {};
+  const f = (v, lo, hi) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : undefined);
+  const put = (k, v) => { if (v != null) optics[k] = v; };
+  put('refraction', f(op.refraction, 0, 250));
+  put('bezel', f(op.bezel, 4, 60));
+  put('frost', f(op.frost, 0, 1));
+  put('blur', f(op.blur, 0, 20));
+  put('specular', f(op.specular, 0, 1));
+  put('dispersion', f(op.dispersion, 0, 0.4));
+  if (['squircle', 'convex', 'rim'].includes(op.profile)) optics.profile = op.profile;
+  if (['auto', 'frost', 'clear'].includes(op.material)) optics.material = op.material;
+  if (!Object.keys(next).length && !Object.keys(optics).length) throw new Error('That code has nothing in it to use.');
+  return { next, optics };
+}
+
+(function wireCustomizeExtras() {
+  const view = cuView();
+  if (!view) return;
+  document.getElementById('cu-theme-grid')?.addEventListener('click', (e) => {
+    const card = e.target.closest('.cu-theme');
+    const t = card && CU_THEMES.find((x) => x.id === card.dataset.theme);
+    if (!t) return;
+    cuApply({ bg: t.bg, accent: t.accent, alpha: t.alpha, sceneDim: t.sceneDim }, `${t.name} theme on`);
+  });
+  document.getElementById('cu-shuffle')?.addEventListener('click', () => {
+    const bgs = Object.keys(window.NEBULA_BACKGROUNDS || {}).filter((k) => k !== 'custom');
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    let next;
+    for (let n = 0; n < 6; n++) {
+      next = { bg: pick(bgs), accent: pick(ACCENTS).id, alpha: 30 + Math.round(Math.random() * 20), sceneDim: 6 + Math.round(Math.random() * 20) };
+      if (next.bg !== theme.bg || next.accent !== theme.accent) break;
+    }
+    cuApply(next, 'Fresh look');
+  });
+  document.getElementById('cu-export')?.addEventListener('click', () => {
+    const payload = { v: 1, ...cuSnapshot(), optics: window.SolarLiquidGlass?.getOptics?.() || undefined };
+    if (payload.bg === 'custom') payload.bg = 'nebula';
+    csCopy(`SC1:${btoa(JSON.stringify(payload))}`, 'Theme code copied');
+  });
+  document.getElementById('cu-import')?.addEventListener('click', async () => {
+    const raw = await showPrompt('Use a theme code', 'Paste a code that starts with SC1:');
+    if (!raw) return;
+    try {
+      const { next, optics } = cuReadCode(raw);
+      if (Object.keys(optics).length && window.SolarLiquidGlass) {
+        SolarLiquidGlass.setOptics(optics);
+        syncLiquidOpticsUI();
+      }
+      cuApply(next, 'Theme code applied');
+    } catch (err) {
+      showToast("Couldn't use that code", escapeHtml(err.message), 'error');
+    }
+  });
+  document.getElementById('cu-reset')?.addEventListener('click', async () => {
+    const ok = await showConfirm('Put the background, accent, glass and buttons back to how SolarClient ships?', { title: 'Reset your look?', confirmLabel: 'Reset' });
+    if (!ok) return;
+    window.SolarLiquidGlass?.resetOptics?.();
+    syncLiquidOpticsUI();
+    cuApply(Object.fromEntries(CU_KEYS.map((k) => [k, defaultTheme[k]])), 'Look reset');
+  });
+  const hex = document.getElementById('cu-hex');
+  hex?.addEventListener('input', () => {
+    let v = hex.value.trim();
+    if (v && v[0] !== '#') v = `#${v}`;
+    hex.classList.toggle('bad', !!v && v.length >= 7 && !CU_HEX.test(v));
+    if (!CU_HEX.test(v)) return;
+    theme.accent = 'custom';
+    theme.customAccent = v.toLowerCase();
+    applyTheme();
+    cuPaintTop();
+  });
+  hex?.addEventListener('change', () => { if (theme.accent === 'custom') { saveTheme(); renderCustomize(); } });
+  hex?.addEventListener('keydown', (e) => { if (e.key === 'Enter') hex.blur(); });
+  document.getElementById('cu-adv')?.addEventListener('click', () => {
+    localStorage.setItem('sc.cu.adv', localStorage.getItem('sc.cu.adv') === '1' ? '0' : '1');
+    cuPaint();
+  });
+  const nav = document.getElementById('cu-nav');
+  nav?.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-cu]');
+    const sec = b && document.getElementById(b.dataset.cu);
+    if (!sec) return;
+    const y = sec.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop - nav.offsetHeight - 14;
+    cuSpyLock = { btn: b, until: performance.now() + 900 };
+    view.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    cuSpy();
+    sec.classList.remove('cu-ping');
+    void sec.offsetWidth;
+    sec.classList.add('cu-ping');
+    setTimeout(() => sec.classList.remove('cu-ping'), 1200);
+  });
+  let spyRaf = 0;
+  view.addEventListener('scroll', () => {
+    if (!betaLayoutOn() || spyRaf) return;
+    spyRaf = requestAnimationFrame(() => { spyRaf = 0; cuSpy(); });
+  }, { passive: true });
+  window.addEventListener('resize', () => { if (betaLayoutOn()) cuSpy(); });
+})();
+
 // ---------- toast notifications ----------
 // ---- sliders: filled track + a value bubble while dragging ----
 const RANGE_UNITS = {
@@ -735,6 +968,7 @@ function showToast(title, message, type = 'info') {
     el.classList.remove('show');
     setTimeout(() => el.remove(), 250);
   }, 4500);
+  return el;
 }
 
 // ---------- themed confirm dialog (replaces native confirm()) ----------
@@ -822,11 +1056,57 @@ async function loadVersionGroups() {
 }
 
 // ---------- navigation ----------
+let navPrevIdx = 0;
+/** Beta: the little bar beside the sidebar slides to the active page. */
+function navInk() {
+  const side = document.querySelector('.sidebar');
+  if (!side) return;
+  let ink = document.getElementById('nav-ink');
+  if (!ink) {
+    ink = document.createElement('i');
+    ink.id = 'nav-ink';
+    ink.setAttribute('aria-hidden', 'true');
+    side.appendChild(ink);
+  }
+  const on = side.querySelector('.nav-btn.active');
+  if (!betaLayoutOn() || !on || !on.offsetParent) { ink.classList.remove('on'); return; }
+  const h = 22;
+  ink.style.transform = `translateY(${Math.round(on.offsetTop + (on.offsetHeight - h) / 2)}px)`;
+  ink.classList.add('on');
+}
+window.addEventListener('resize', () => navInk());
+function navFx(btn, view, e) {
+  if (!betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = btn.getBoundingClientRect();
+  const wrap = document.createElement('span');
+  wrap.className = 'nav-ripple-wrap';
+  wrap.innerHTML = '<span class="nav-ripple"></span>';
+  wrap.firstChild.style.left = `${(e?.clientX || r.left + r.width / 2) - r.left}px`;
+  wrap.firstChild.style.top = `${(e?.clientY || r.top + r.height / 2) - r.top}px`;
+  btn.appendChild(wrap);
+  setTimeout(() => wrap.remove(), 650);
+  btn.classList.remove('nav-bounce');
+  void btn.offsetWidth;
+  btn.classList.add('nav-bounce');
+  const btns = [...document.querySelectorAll('.sidebar .nav-btn[data-view]')];
+  const idx = btns.indexOf(btn);
+  const v = document.getElementById(`view-${view}`);
+  if (v && idx !== navPrevIdx) {
+    v.classList.remove('sc-view-up', 'sc-view-down');
+    void v.offsetWidth;
+    v.classList.add(idx > navPrevIdx ? 'sc-view-up' : 'sc-view-down');
+    clearTimeout(v._viewFx);
+    v._viewFx = setTimeout(() => v.classList.remove('sc-view-up', 'sc-view-down'), 520);
+  }
+  navPrevIdx = idx;
+}
 document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', (e) => {
     const view = btn.dataset.view;
     if (!view) return;
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    navFx(btn, view, e);
+    navInk();
     if (betaLayoutOn()) closeCommunityStage();
     if (document.getElementById('view-launchpad')?.classList.contains('active')
       && (view === 'customize' || !launchPreviewSnap)) captureLaunchPreview();
@@ -1329,6 +1609,7 @@ function syncCommunitiesFromSnap(snap) {
   if (openCommunityId && openChannelId && channelRemoved(openCommunityId, openChannelId)) {
     openChannelId = communityState.find((c) => c.id === openCommunityId)?.channels?.[0]?.id || null;
   }
+  if (betaLayoutOn() && prevState.length) csNotifyNew(prevState, communityState);
   renderCommunities();
   if (openCommunityId) {
     const key = JSON.stringify(communityState.find((c) => c.id === openCommunityId));
@@ -1515,9 +1796,121 @@ let communityOpenedAt = 0;
 let csPaintedChannel = '';
 let csSeenMsgIds = new Set();
 let csIndicator = null;
+let csMentionAuto = null;
+let csReply = null;
+let csUnreadFrom = 0;
+let csBelow = 0;
+let csSearch = null;
 
 function msgKey(communityId, channelId) {
   return `${communityId}:${channelId}`;
+}
+
+// Community extras (beta): read markers, mutes, notification levels, saved
+// messages, drafts and folded categories. The server only stores plain
+// messages, so all of this lives on this PC.
+const CS_STORE = 'sc.cs.state';
+const CS_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+let csStore = null;
+let csSaveTimer = 0;
+function csState() {
+  if (!csStore) {
+    try { csStore = JSON.parse(localStorage.getItem(CS_STORE) || '{}') || {}; } catch { csStore = {}; }
+    for (const k of ['read', 'mute', 'notify', 'drafts', 'collapsed', 'sent']) {
+      if (!csStore[k] || typeof csStore[k] !== 'object' || Array.isArray(csStore[k])) csStore[k] = {};
+    }
+    if (!Array.isArray(csStore.saved)) csStore.saved = [];
+    csStore.prefs = { compact: false, times: true, ping: true, ...(csStore.prefs || {}) };
+  }
+  return csStore;
+}
+function csSave() {
+  clearTimeout(csSaveTimer);
+  csSaveTimer = setTimeout(() => { try { localStorage.setItem(CS_STORE, JSON.stringify(csStore)); } catch { /* full */ } }, 150);
+}
+function csMsgs(c, ch) {
+  const cutoff = Date.now() - CS_KEEP_MS;
+  return (c?.messages?.[ch?.id] || []).filter((m) => !m.at || m.at >= cutoff);
+}
+const csMsgId = (m) => String(m.id || `${m.at}|${m.from}`);
+const csIsMine = (m) => normVoiceId(m.from) === myVoiceId();
+function csReadAt(c, ch) {
+  const st = csState();
+  const k = msgKey(c.id, ch.id);
+  if (st.read[k] == null) {
+    const ms = csMsgs(c, ch);
+    st.read[k] = ms.length ? (ms[ms.length - 1].at || Date.now()) : Date.now();
+    csSave();
+  }
+  return st.read[k];
+}
+function csMarkRead(c, ch) {
+  if (!c || !ch) return;
+  const st = csState();
+  const k = msgKey(c.id, ch.id);
+  const ms = csMsgs(c, ch);
+  const latest = ms.length ? Math.max(...ms.map((m) => m.at || 0)) : 0;
+  if ((st.read[k] || 0) >= latest && st.read[k] != null) return false;
+  st.read[k] = Math.max(Date.now(), latest);
+  csSave();
+  return true;
+}
+function csMentionsMe(m) {
+  const me = myName();
+  if (!me) return false;
+  const reply = scParseReply(m.text);
+  return scMentionsMe(reply ? reply.body : m.text, me) || reply?.to?.toLowerCase() === me.toLowerCase();
+}
+const csMuted = (c, ch) => !!csState().mute[msgKey(c.id, ch.id)];
+const csNotifyLevel = (c) => csState().notify[c.id] || 'mentions';
+/** New messages since you last looked: { n, at } where at counts the ones that mention you. */
+function csUnread(c, ch) {
+  if (!c || !ch || ch.kind !== 'text') return { n: 0, at: 0 };
+  const read = csReadAt(c, ch);
+  let n = 0;
+  let at = 0;
+  for (const m of csMsgs(c, ch)) {
+    if ((m.at || 0) <= read || csIsMine(m)) continue;
+    n++;
+    if (csMentionsMe(m)) at++;
+  }
+  return { n, at };
+}
+function csCommunityUnread(c) {
+  if (csNotifyLevel(c) === 'none') return { n: 0, at: 0 };
+  let n = 0;
+  let at = 0;
+  for (const ch of c.channels || []) {
+    const u = csUnread(c, ch);
+    at += u.at;
+    if (!csMuted(c, ch)) n += u.n;
+  }
+  return { n, at };
+}
+function csMarkCommunityRead(c) {
+  for (const ch of c.channels || []) if (ch.kind === 'text') csMarkRead(c, ch);
+  renderCommunities();
+  if (openCommunityId === c.id) renderCommunityStage();
+}
+function csIsSaved(c, chId, m) {
+  const id = csMsgId(m);
+  return csState().saved.some((s) => s.cid === c.id && s.chid === chId && s.id === id);
+}
+function csToggleSaved(c, ch, m) {
+  const st = csState();
+  const id = csMsgId(m);
+  const i = st.saved.findIndex((s) => s.cid === c.id && s.chid === ch.id && s.id === id);
+  if (i >= 0) { st.saved.splice(i, 1); showToast('Removed from saved', '', 'info'); }
+  else {
+    st.saved.unshift({ cid: c.id, chid: ch.id, chName: ch.name, id, from: m.from, name: m.name, text: m.text, at: m.at, savedAt: Date.now() });
+    st.saved = st.saved.slice(0, 200);
+    showToast('Saved', 'Find it under Saved in the channel header. It stays on this PC even after the message expires.', 'success');
+  }
+  csSave();
+}
+async function csCopy(text, what = 'Copied') {
+  try { await navigator.clipboard.writeText(text); showToast(what, '', 'success'); }
+  catch { showToast("Couldn't copy", 'Clipboard is not available.', 'error'); }
 }
 
 function closeCommunityStage() {
@@ -1527,7 +1920,11 @@ function closeCommunityStage() {
   openCommunityId = null;
   openChannelId = null;
   document.body.classList.remove('community-open');
-  document.querySelectorAll('.rail-comm').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.rail-comm, .rail-comm-wrap').forEach((b) => b.classList.remove('active'));
+  document.querySelector('.cs-saved')?.remove();
+  csMentionAuto?.destroy();
+  csMentionAuto = null;
+  requestAnimationFrame(navInk);
 }
 
 function communityInviteLink(community) {
@@ -2381,16 +2778,23 @@ function renderCommunities() {
   host.innerHTML = '';
   if (!betaLayoutOn()) return;
   readCommunities().forEach((c) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'rail-comm-wrap';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'rail-comm';
     btn.dataset.id = c.id;
-    btn.title = c.name;
+    btn.setAttribute('aria-label', c.name);
     if (c.id === openCommunityId) btn.classList.add('active');
     paintCommunityIcon(btn, c);
+    const u = csCommunityUnread(c);
+    wrap.classList.toggle('has-unread', u.n > 0);
+    wrap.classList.toggle('active', c.id === openCommunityId);
+    wrap.insertAdjacentHTML('beforeend', `<i class="rail-pill" aria-hidden="true"></i>${u.at ? `<i class="rail-badge">${u.at > 9 ? '9+' : u.at}</i>` : ''}`);
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       closeRailSheets();
+      railTip();
       if (openCommunityId === c.id) {
         if (performance.now() - communityOpenedAt < 450) return;
         closeCommunityStage();
@@ -2398,7 +2802,18 @@ function renderCommunities() {
       }
       openCommunityStage(c.id);
     });
-    host.appendChild(btn);
+    btn.addEventListener('mouseenter', () => {
+      const n = csCommunityUnread(c);
+      railTip(btn, c.name, n.at ? `${n.at} ${n.at === 1 ? 'mention' : 'mentions'}` : n.n ? `${n.n} new ${n.n === 1 ? 'message' : 'messages'}` : `${(c.channels || []).length} channels`);
+    });
+    btn.addEventListener('mouseleave', () => railTip());
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      railTip();
+      communityMenu(c, e.clientX, e.clientY);
+    });
+    wrap.appendChild(btn);
+    host.appendChild(wrap);
   });
   if (!document.getElementById('rail-hangup')) {
     const hang = document.createElement('button');
@@ -2411,6 +2826,54 @@ function renderCommunities() {
     host.parentElement?.appendChild(hang);
   }
   syncVoiceHangup();
+}
+
+/** Name bubble beside a rail button; railTip() with no args hides it. */
+function railTip(anchor, title, sub) {
+  let tip = document.getElementById('rail-tip');
+  if (!anchor) { tip?.classList.remove('show'); return; }
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'rail-tip';
+    tip.className = 'rail-tip';
+    document.body.appendChild(tip);
+  }
+  tip.innerHTML = `<b>${escapeHtml(title)}</b>${sub ? `<span>${escapeHtml(sub)}</span>` : ''}`;
+  const r = anchor.getBoundingClientRect();
+  tip.style.top = `${Math.round(r.top + r.height / 2)}px`;
+  tip.style.left = `${Math.round(r.left - 10)}px`;
+  tip.classList.remove('show');
+  void tip.offsetWidth;
+  tip.classList.add('show');
+}
+
+/** Right-click menu for a community on the rail or in its header. */
+function communityMenu(c, x, y) {
+  const level = csNotifyLevel(c);
+  const setLevel = (v) => () => { csState().notify[c.id] = v; csSave(); renderCommunities(); };
+  const link = communityInviteLink(c);
+  scMenu(x, y, [
+    ['Mark as read', () => csMarkCommunityRead(c)],
+    ['Invite friends', () => { openCommunityStage(c.id); setTimeout(() => openCommunityInvite(c), 60); }],
+    ...(link ? [['Copy invite link', () => csCopy(link, 'Invite link copied')]] : []),
+    '-',
+    ['Notify me for every message', setLevel('all'), { check: true, on: level === 'all' }],
+    ['Only when I\'m mentioned', setLevel('mentions'), { check: true, on: level === 'mentions' }],
+    ['Never notify me', setLevel('none'), { check: true, on: level === 'none' }],
+    '-',
+    ...(c.isOwner ? [['Community settings', () => openCommunitySettings(c)]] : []),
+    [c.isOwner ? 'Delete community' : 'Leave community', async () => {
+      const ok = c.isOwner
+        ? await showConfirm(`Delete ${c.name} for everyone in it? This can't be undone.`, { title: 'Delete community?', confirmLabel: 'Delete' })
+        : await showConfirm(`Leave ${c.name}? You'll need a new invite link to join again.`, { title: 'Leave community?', confirmLabel: 'Leave' });
+      if (!ok) return;
+      if (voiceSession && voiceSession.communityId === c.id) await leaveVoice();
+      try { await window.nebula.communitiesLeave({ id: c.id }); } catch { /* the snapshot drops it anyway */ }
+      communityState = communityState.filter((x) => x.id !== c.id);
+      if (openCommunityId === c.id) closeCommunityStage();
+      renderCommunities();
+    }, { danger: true }],
+  ], { title: c.name });
 }
 
 /** A community's picture, or its first letter when it has none. */
@@ -2512,6 +2975,7 @@ function openCommunityStage(communityId, channelId) {
   if (!community) return;
   closeRailSheets();
   const switchedCommunity = openCommunityId !== communityId;
+  const prevKey = openCommunityId && openChannelId ? msgKey(openCommunityId, openChannelId) : '';
   openCommunityId = communityId;
   const channels = community.channels || [];
   const pick = channels.find((ch) => ch.id === channelId)
@@ -2520,6 +2984,13 @@ function openCommunityStage(communityId, channelId) {
     || channels[0]
     || null;
   openChannelId = pick ? pick.id : null;
+  if (pick && msgKey(communityId, pick.id) !== prevKey) {
+    csUnreadFrom = pick.kind === 'text' ? csReadAt(community, pick) : 0;
+    csBelow = 0;
+    csSearch = null;
+    if (csReply && csReply.key !== msgKey(communityId, pick.id)) csReply = null;
+  }
+  csRefreshOnline();
   const stage = document.getElementById('community-stage');
   if (stage?.classList.contains('hidden')) communityOpenedAt = performance.now();
   if (stage && (switchedCommunity || stage.classList.contains('hidden'))) {
@@ -2562,35 +3033,54 @@ function renderCommunityStage() {
     meta.textContent = `${n ? `${n} ${n === 1 ? 'member' : 'members'} · ` : ''}${channels.length} ${channels.length === 1 ? 'channel' : 'channels'}`;
   }
   let stagger = 0;
+  const st = csState();
+  const foldHead = (key, label, count) => `<button type="button" class="cs-kind${st.collapsed[key] ? ' shut' : ''}" data-fold="${escapeHtml(key)}" style="--i:${stagger++}">
+      <span><svg class="cs-fold" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3"/></svg>${label}</span><em>${count}</em></button>`;
   const group = (kind, label) => {
     const ofKind = channels.filter((ch) => ch.kind === kind);
-    const head = `<div class="cs-kind" style="--i:${stagger++}"><span>${label}</span><em>${ofKind.length}</em></div>`;
-    const rows = ofKind.map((ch) => `
-      <button type="button" class="cs-ch ${ch.id === openChannelId ? 'active' : ''}" data-ch="${escapeHtml(ch.id)}" style="--i:${stagger++}">
+    const key = `${community.id}:${kind}`;
+    const shut = !!st.collapsed[key];
+    const head = foldHead(key, label, ofKind.length);
+    const rows = ofKind.filter((ch) => !shut || ch.id === openChannelId || csUnread(community, ch).at).map((ch) => {
+      const u = csUnread(community, ch);
+      const muted = csMuted(community, ch);
+      const here = ch.id === openChannelId;
+      return `
+      <button type="button" class="cs-ch ${here ? 'active' : ''} ${u.n && !muted && !here ? 'unread' : ''} ${muted ? 'muted' : ''}" data-ch="${escapeHtml(ch.id)}" style="--i:${stagger++}">
         <span class="cs-ch-icon">${kind === 'voice' ? VOICE_ICONS.headphones : '#'}</span><span class="cs-ch-name">${escapeHtml(ch.name)}</span>
+        ${muted ? '<svg class="cs-ch-muted" viewBox="0 0 24 24" aria-label="Muted"><path d="M20 18.7 5.3 4 4 5.3l3.1 3.1A6 6 0 0 0 6 12v5l-2 2v1h13.7l1 1 1.3-1.3zM12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6.8V11a6 6 0 0 0-4.5-5.8V4.5a1.5 1.5 0 0 0-3 0v.7c-.5.1-1 .3-1.4.6z"/></svg>' : ''}
+        ${u.at && !here ? `<span class="cs-ch-badge">${u.at > 9 ? '9+' : u.at}</span>` : ''}
         ${kind === 'voice' ? `<span class="cs-ch-occ" data-occ="${escapeHtml(ch.id)}"></span>` : ''}
         ${community.isOwner ? `<span class="cs-ch-tools">
           <span class="cs-ch-act" data-act="rename" title="Rename channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z"/></svg></span>
           <span class="cs-ch-act" data-act="delete" title="Delete channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg></span>
         </span>` : ''}
       </button>
-    `).join('');
-    return `${head}${rows || `<div class="cs-empty" style="--i:${stagger++}">None yet</div>`}`;
+    `;
+    }).join('');
+    return `${head}${rows || (shut ? '' : `<div class="cs-empty" style="--i:${stagger++}">None yet</div>`)}`;
   };
   const textGroup = group('text', 'Text channels');
   const voiceGroup = group('voice', 'Voice channels');
-  const memberHead = members.length ? `<div class="cs-kind" style="--i:${stagger++}"><span>Members</span><em>${members.length}</em></div>` : '';
+  const membersKey = `${community.id}:members`;
+  const onlineN = members.filter((p) => csOnline.has(normVoiceId(p.uuid))).length;
+  const memberHead = members.length ? foldHead(membersKey, `Members${onlineN ? ` · ${onlineN} online` : ''}`, members.length) : '';
+  const sortedMembers = [...members].sort((a, b) => (csOnline.has(normVoiceId(b.uuid)) - csOnline.has(normVoiceId(a.uuid)))
+    || ((b.uuid === community.ownerId) - (a.uuid === community.ownerId)) || String(a.name).localeCompare(String(b.name)));
   list.innerHTML = `
     <span class="cs-ch-ind" aria-hidden="true"></span>
     ${textGroup}
     ${voiceGroup}
-    ${memberHead}${members.map((p) => `
-      <div class="cs-invited cs-person" style="--i:${stagger++}">
-        <img class="cs-person-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}>
+    ${memberHead}${st.collapsed[membersKey] ? '' : sortedMembers.map((p) => {
+      const on = csOnline.has(normVoiceId(p.uuid));
+      return `
+      <div class="cs-invited cs-person ${on ? 'online' : 'away'}" data-uuid="${escapeHtml(p.uuid)}" data-name="${escapeHtml(p.name)}" style="--i:${stagger++}">
+        <span class="cs-person-face-wrap"><img class="cs-person-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="cs-person-dot" title="${on ? 'Online' : 'Offline'}"></i></span>
         <span class="cs-person-name" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>
         ${p.uuid === community.ownerId ? '<span class="cs-person-owner" title="Owner">Owner</span>' : ''}
         ${reportFlag(p.uuid, p.name, { where: `Community: ${community.name}` })}
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
     <button type="button" class="cs-leave" id="cs-leave" style="--i:${stagger++}">${community.isOwner ? 'Delete community' : 'Leave community'}</button>
   `;
   const ind = list.querySelector('.cs-ch-ind');
@@ -2611,31 +3101,67 @@ function renderCommunityStage() {
     csIndicator = { community: community.id, y, h };
   }
   paintVoiceOccupants();
+  const channelEdit = async (ch, act) => {
+    try {
+      if (act === 'rename') {
+        const name = (await showPrompt('Rename channel', ch.kind === 'voice' ? 'Voice channel name' : 'Text channel name', ch.name) || '').trim();
+        if (!name || name === ch.name) return;
+        await window.nebula.communitiesRenameChannel({ id: community.id, channelId: ch.id, name });
+      } else {
+        const ok = await showConfirm(
+          ch.kind === 'voice'
+            ? `Delete the voice channel ${ch.name}? Anyone in it will be disconnected.`
+            : `Delete #${ch.name} and all of its messages for everyone? This can't be undone.`,
+          { title: 'Delete channel?', confirmLabel: 'Delete' });
+        if (!ok) return;
+        await window.nebula.communitiesDeleteChannel({ id: community.id, channelId: ch.id });
+      }
+    } catch (err) {
+      showToast("Couldn't update channel", err?.message || String(err), 'error');
+    }
+  };
   list.querySelectorAll('.cs-ch').forEach((btn) => {
     btn.addEventListener('click', () => openCommunityStage(community.id, btn.dataset.ch));
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const ch = channels.find((x) => x.id === btn.dataset.ch);
+      if (!ch) return;
+      const k = msgKey(community.id, ch.id);
+      const muted = csMuted(community, ch);
+      scMenu(e.clientX, e.clientY, [
+        ...(ch.kind === 'text' ? [['Mark as read', () => { csMarkRead(community, ch); renderCommunities(); renderCommunityStage(); }]] : []),
+        [muted ? 'Unmute channel' : 'Mute channel', () => {
+          if (muted) delete st.mute[k]; else st.mute[k] = true;
+          csSave();
+          renderCommunities();
+          renderCommunityStage();
+        }],
+        ['Copy channel name', () => csCopy(ch.kind === 'text' ? `#${ch.name}` : ch.name)],
+        ...(community.isOwner ? ['-', ['Rename channel', () => channelEdit(ch, 'rename')], ['Delete channel', () => channelEdit(ch, 'delete'), { danger: true }]] : []),
+      ], { title: ch.kind === 'text' ? `#${ch.name}` : ch.name });
+    });
   });
   list.querySelectorAll('.cs-ch-act').forEach((tool) => {
-    tool.addEventListener('click', async (e) => {
+    tool.addEventListener('click', (e) => {
       e.stopPropagation();
       const ch = channels.find((x) => x.id === tool.closest('.cs-ch')?.dataset.ch);
-      if (!ch) return;
-      try {
-        if (tool.dataset.act === 'rename') {
-          const name = (await showPrompt('Rename channel', ch.kind === 'voice' ? 'Voice channel name' : 'Text channel name', ch.name) || '').trim();
-          if (!name || name === ch.name) return;
-          await window.nebula.communitiesRenameChannel({ id: community.id, channelId: ch.id, name });
-        } else {
-          const ok = await showConfirm(
-            ch.kind === 'voice'
-              ? `Delete the voice channel ${ch.name}? Anyone in it will be disconnected.`
-              : `Delete #${ch.name} and all of its messages for everyone? This can't be undone.`,
-            { title: 'Delete channel?', confirmLabel: 'Delete' });
-          if (!ok) return;
-          await window.nebula.communitiesDeleteChannel({ id: community.id, channelId: ch.id });
-        }
-      } catch (err) {
-        showToast("Couldn't update channel", err?.message || String(err), 'error');
-      }
+      if (ch) channelEdit(ch, tool.dataset.act);
+    });
+  });
+  list.querySelectorAll('.cs-kind[data-fold]').forEach((head) => {
+    head.addEventListener('click', () => {
+      const k = head.dataset.fold;
+      if (st.collapsed[k]) delete st.collapsed[k]; else st.collapsed[k] = true;
+      csSave();
+      csIndicator = null;
+      renderCommunityStage();
+    });
+  });
+  list.querySelectorAll('.cs-person').forEach((row) => {
+    row.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.rflag')) return;
+      e.preventDefault();
+      showPeopleMenu({ uuid: row.dataset.uuid, name: row.dataset.name }, e.clientX, e.clientY);
     });
   });
   const addBar = document.getElementById('cs-addbar');
@@ -2771,21 +3297,33 @@ function renderCommunityStage() {
     return;
   }
 
-  const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
-  const msgs = (community.messages?.[channel.id] || []).filter(m => !m.at || m.at >= cutoff);
+  const prefs = st.prefs;
+  stage.classList.toggle('cs-compact', !!prefs.compact);
+  stage.classList.toggle('cs-times-hover', !prefs.times);
+  const msgs = csMsgs(community, channel);
   const draftKey = msgKey(community.id, channel.id);
   const oldInput = document.getElementById('cs-input');
-  const draft = oldInput && oldInput.dataset.key === draftKey ? oldInput.value : '';
-  const hadFocus = !!oldInput && document.activeElement === oldInput;
+  const sameInput = !!oldInput && oldInput.dataset.key === draftKey;
+  const draft = sameInput ? oldInput.value : (st.drafts[draftKey] || '');
+  const caret = sameInput ? [oldInput.selectionStart, oldInput.selectionEnd] : null;
+  const hadFocus = (!!oldInput && document.activeElement === oldInput) || (switchedChannel && !stage.classList.contains('hidden'));
+  const oldSearch = document.getElementById('cs-search');
+  const searchFocus = !!oldSearch && document.activeElement === oldSearch;
   const oldBox = document.getElementById('cs-msgs');
   const wasAtBottom = !oldBox || oldBox.scrollHeight - oldBox.scrollTop - oldBox.clientHeight < 80;
   const oldScroll = oldBox ? oldBox.scrollTop : 0;
   const me = myVoiceId();
-  const introFrom = Math.max(0, msgs.length - 10);
+  const myNm = myName();
+  const q = (csSearch || '').trim().toLowerCase();
+  const shown = q ? msgs.filter((m) => `${m.name || ''} ${m.text || ''}`.toLowerCase().includes(q)) : msgs;
+  const owner = normVoiceId(community.ownerId || '');
+  const introFrom = Math.max(0, shown.length - 10);
   let prev = null;
   let lastDay = '';
-  const rows = msgs.map((m, i) => {
-    const mid = String(m.id || `${m.at}|${m.from}`);
+  let dividerDone = false;
+  let newBelow = 0;
+  const rows = shown.map((m, i) => {
+    const mid = csMsgId(m);
     let out = '';
     const day = m.at ? csDayLabel(m.at) : '';
     if (day && day !== lastDay) {
@@ -2793,28 +3331,49 @@ function renderCommunityStage() {
       lastDay = day;
       prev = null;
     }
-    const cont = !!(prev && prev.from === m.from && m.at && prev.at && m.at - prev.at < 5 * 60 * 1000);
     const mine = normVoiceId(m.from) === me;
+    if (!q && !dividerDone && csUnreadFrom && (m.at || 0) > csUnreadFrom && !mine) {
+      out += '<div class="cs-new-line"><span>New</span></div>';
+      dividerDone = true;
+      prev = null;
+    }
+    const cont = !q && !!(prev && prev.from === m.from && m.at && prev.at && m.at - prev.at < 5 * 60 * 1000);
     let anim = '';
     if (switchedChannel) anim = i >= introFrom ? 'is-intro' : '';
-    else if (!csSeenMsgIds.has(mid)) anim = 'is-new';
+    else if (!csSeenMsgIds.has(mid)) { anim = 'is-new'; if (!mine) newBelow++; }
     const delay = switchedChannel && i >= introFrom ? (i - introFrom) * 32 : 0;
+    const reply = scParseReply(m.text);
+    const body = reply ? reply.body : String(m.text || '');
+    const mention = !mine && csMentionsMe(m);
+    const big = SC_EMOJI_ONLY.test(body.trim());
+    const saved = csIsSaved(community, channel.id, m);
     const flag = reportFlag(m.from, m.name, { where: `${community.name} #${channel.name}`, text: m.text, at: m.at });
+    const full = m.at ? new Date(m.at).toLocaleString() : '';
     out += `
-      <div class="cs-msg ${cont ? 'is-cont' : ''} ${mine ? 'is-mine' : ''} ${anim}" style="--d:${delay}ms">
+      <div class="cs-msg ${cont ? 'is-cont' : ''} ${mine ? 'is-mine' : ''} ${mention ? 'is-mention' : ''} ${anim}" data-mid="${escapeHtml(mid)}" style="--d:${delay}ms">
         ${cont
-          ? `<span class="cs-msg-gutter">${m.at ? csClock(m.at) : ''}</span>`
+          ? `<span class="cs-msg-gutter" title="${escapeHtml(full)}">${m.at ? csClock(m.at) : ''}</span>`
           : `<img class="cs-msg-face" src="${frAvatar(m.from)}" alt="" ${personAttr(m.from, m.name)}>`}
         <div class="cs-msg-body">
-          ${cont ? '' : `<div class="cs-msg-head"><b class="cs-msg-name" ${personAttr(m.from, m.name)}>${escapeHtml(m.name || 'Someone')}</b>${m.at ? `<time class="cs-msg-time">${csClock(m.at)}</time>` : ''}</div>`}
-          <div class="cs-msg-text">${linkifyText(m.text)}</div>
+          ${reply ? `<button type="button" class="cs-reply-chip" data-jump="${escapeHtml(reply.to)}" data-quote="${escapeHtml(reply.quote)}">${CS_ICON.reply}<b>@${escapeHtml(reply.to)}</b><span>${escapeHtml(reply.quote)}</span></button>` : ''}
+          ${cont ? '' : `<div class="cs-msg-head"><b class="cs-msg-name" ${personAttr(m.from, m.name)}>${escapeHtml(m.name || 'Someone')}</b>${owner && normVoiceId(m.from) === owner ? '<span class="cs-msg-owner" title="Owns this community">Owner</span>' : ''}${m.at ? `<time class="cs-msg-time" title="${escapeHtml(full)}">${csClock(m.at)}</time>` : ''}${saved ? `<span class="cs-msg-saved" title="Saved">${CS_ICON.save}</span>` : ''}</div>`}
+          <div class="cs-msg-text${big ? ' big' : ''}">${scRich(body, { me: myNm })}</div>
         </div>
-        ${flag ? `<span class="cs-msg-actions">${flag}</span>` : ''}
+        <div class="cs-mtools">
+          <button type="button" data-t="reply" title="Reply">${CS_ICON.reply}</button>
+          ${mine ? '' : `<button type="button" data-t="at" title="Mention">${CS_ICON.at}</button>`}
+          <button type="button" data-t="copy" title="Copy text">${CS_ICON.copy}</button>
+          <button type="button" data-t="save" class="${saved ? 'on' : ''}" title="${saved ? 'Remove from saved' : 'Save message'}">${CS_ICON.save}</button>
+          ${flag}
+          <button type="button" data-t="more" title="More">${CS_ICON.more}</button>
+        </div>
       </div>`;
     prev = m;
     return out;
   }).join('');
-  csSeenMsgIds = new Set(msgs.map((m) => String(m.id || `${m.at}|${m.from}`)));
+  csSeenMsgIds = new Set(msgs.map(csMsgId));
+  const savedN = st.saved.filter((s) => s.cid === community.id).length;
+  const replying = csReply && csReply.key === draftKey ? csReply : null;
   main.innerHTML = `
     <div class="cs-main-head">
       <span class="cs-main-glyph cs-main-hash">#</span>
@@ -2823,17 +3382,39 @@ function renderCommunityStage() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6 3.2 1.9-.9 1.5L11 13.5V7h2v5.6z"/></svg>
         Messages are deleted after 3 days
       </span>
-      <button type="button" class="note-link cs-main-rules" data-open-rules>Rules</button>
+      <div class="cs-head-tools">
+        <button type="button" class="cs-htool ${csSearch != null ? 'on' : ''}" id="cs-search-btn" title="Search this channel (Ctrl+F)">${CS_ICON.search}</button>
+        <button type="button" class="cs-htool" id="cs-saved-btn" title="Saved messages">${CS_ICON.save}${savedN ? `<em>${savedN}</em>` : ''}</button>
+        <button type="button" class="cs-htool" id="cs-more-btn" title="Channel options">${CS_ICON.more}</button>
+        <button type="button" class="note-link cs-main-rules" data-open-rules>Rules</button>
+      </div>
     </div>
-    <div class="cs-msgs" id="cs-msgs">${rows || `
+    ${csSearch != null ? `<div class="cs-searchbar">
+      ${CS_ICON.search}
+      <input id="cs-search" maxlength="40" placeholder="Search #${escapeHtml(channel.name)}" autocomplete="off" spellcheck="false" value="${escapeHtml(csSearch)}">
+      <span class="cs-search-n">${q ? (shown.length ? `${shown.length} found` : 'No matches') : ''}</span>
+      <button type="button" class="cs-htool" id="cs-search-x" title="Close search (Esc)">&times;</button>
+    </div>` : ''}
+    <div class="cs-msgs" id="cs-msgs">${rows || (q ? `
+      <div class="cs-hello cs-hello-center cs-hello-search">
+        <div class="cs-hello-orb">${CS_ICON.search}</div>
+        <div class="cs-hello-title">Nothing matches</div>
+        <div class="cs-hello-sub">No message in #${escapeHtml(channel.name)} has "${escapeHtml(csSearch)}" in it.</div>
+      </div>` : `
       <div class="cs-hello">
         <div class="cs-hello-orb">#</div>
         <div class="cs-hello-title">Welcome to <em>#${escapeHtml(channel.name)}</em></div>
         <div class="cs-hello-sub">This is the very start of the channel. Say hi and get it going.</div>
-      </div>`}</div>
+      </div>`)}</div>
+    <button type="button" class="cs-jump hidden" id="cs-jump">${CS_ICON.down}<span id="cs-jump-n">Jump to latest</span></button>
     <form class="cs-compose" id="cs-compose">
+      ${replying ? `<div class="cs-replybar">${CS_ICON.reply}<span>Replying to <b>${escapeHtml(replying.name)}</b><em>${escapeHtml(replying.text.slice(0, 90))}</em></span>
+        <button type="button" class="cs-htool" id="cs-reply-x" title="Cancel reply (Esc)">&times;</button></div>` : ''}
       <div class="cs-compose-field" id="cs-compose-field">
+        <button type="button" class="cs-cbtn cs-fmt-btn" id="cs-fmt-btn" title="Formatting">Aa</button>
         <input id="cs-input" maxlength="500" placeholder="Message #${escapeHtml(channel.name)}" autocomplete="off" spellcheck="true">
+        <span class="cs-count" id="cs-count"></span>
+        <button type="button" class="cs-cbtn" id="cs-emoji-btn" title="Emoji">${CS_ICON.emoji}</button>
         <button type="submit" class="cs-send" aria-label="Send" title="Send">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6l-.01 6.53L15 12 3.39 13.87z"/></svg>
         </button>
@@ -2841,35 +3422,483 @@ function renderCommunityStage() {
     </form>
   `;
   const box = document.getElementById('cs-msgs');
-  if (box) box.scrollTop = switchedChannel || wasAtBottom ? box.scrollHeight : oldScroll;
+  const jump = document.getElementById('cs-jump');
+  const jumpN = document.getElementById('cs-jump-n');
+  const atBottom = () => !box || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const visible = () => !stage.classList.contains('hidden') && !document.hidden;
+  const paintJump = () => {
+    if (!jump) return;
+    jump.classList.toggle('hidden', atBottom());
+    jumpN.textContent = csBelow ? `${csBelow} new ${csBelow === 1 ? 'message' : 'messages'}` : 'Jump to latest';
+    jump.classList.toggle('has-new', csBelow > 0);
+  };
+  if (box) {
+    if (q) box.scrollTop = 0;
+    else if (switchedChannel) {
+      const line = box.querySelector('.cs-new-line');
+      box.scrollTop = line && line.offsetTop > box.clientHeight * 0.6 ? line.offsetTop - 40 : box.scrollHeight;
+    } else box.scrollTop = wasAtBottom ? box.scrollHeight : oldScroll;
+    if (!switchedChannel && !wasAtBottom) csBelow += newBelow;
+    if (atBottom()) csBelow = 0;
+    paintJump();
+    box.addEventListener('scroll', () => {
+      if (atBottom()) {
+        csBelow = 0;
+        if (visible() && !q && csMarkRead(community, channel)) renderCommunities();
+      }
+      paintJump();
+    }, { passive: true });
+  }
+  jump?.addEventListener('click', () => {
+    csBelow = 0;
+    box?.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+  });
+  if (visible() && atBottom() && !q && csMarkRead(community, channel)) renderCommunities();
+
   const input = document.getElementById('cs-input');
   const field = document.getElementById('cs-compose-field');
-  const syncSend = () => field?.classList.toggle('has-text', !!(input?.value || '').trim());
+  const count = document.getElementById('cs-count');
+  const syncSend = () => {
+    const v = input?.value || '';
+    field?.classList.toggle('has-text', !!v.trim());
+    if (count) {
+      count.textContent = v.length >= 400 ? String(500 - v.length) : '';
+      count.classList.toggle('warn', v.length >= 470);
+    }
+  };
   if (input) {
     input.dataset.key = draftKey;
     input.value = draft;
-    if (hadFocus) input.focus();
-    input.addEventListener('input', syncSend);
+    if (hadFocus && !searchFocus) {
+      input.focus({ preventScroll: true });
+      if (caret) input.setSelectionRange(caret[0], caret[1]);
+    }
+    input.addEventListener('input', () => {
+      syncSend();
+      if (input.value) st.drafts[draftKey] = input.value; else delete st.drafts[draftKey];
+      csSave();
+    });
     syncSend();
+    csMentionAuto?.destroy();
+    csMentionAuto = scMentionAuto(input, () => members.map((p) => ({ uuid: p.uuid, name: p.name })).filter((p) => p.name !== myNm));
+    const wrap = (mark) => {
+      const a = input.selectionStart ?? 0;
+      const b = input.selectionEnd ?? 0;
+      const sel = input.value.slice(a, b);
+      const next = input.value.slice(0, a) + mark + sel + mark + input.value.slice(b);
+      if (next.length > 500) return;
+      input.value = next;
+      input.focus();
+      input.setSelectionRange(a + mark.length, b + mark.length);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (csReply) { e.preventDefault(); csReply = null; renderCommunityStage(); return; }
+        if (csSearch != null) { e.preventDefault(); csSearch = null; renderCommunityStage(); return; }
+      }
+      if (e.key === 'ArrowUp' && !input.value && st.sent[draftKey]) {
+        e.preventDefault();
+        input.value = st.sent[draftKey];
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'b') { e.preventDefault(); wrap('**'); }
+        else if (k === 'i') { e.preventDefault(); wrap('*'); }
+        else if (k === 'u') { e.preventDefault(); wrap('__'); }
+      }
+    });
+    document.getElementById('cs-emoji-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      scEmojiPicker(e.currentTarget, (em) => scInsert(input, em));
+    });
+    document.getElementById('cs-fmt-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const r = e.currentTarget.getBoundingClientRect();
+      const menu = scMenu(r.left, r.top, [
+        ['Bold', () => wrap('**'), { hint: 'Ctrl+B' }],
+        ['Italic', () => wrap('*'), { hint: 'Ctrl+I' }],
+        ['Underline', () => wrap('__'), { hint: 'Ctrl+U' }],
+        ['Strikethrough', () => wrap('~~')],
+        ['Spoiler', () => wrap('||')],
+        ['Code', () => wrap('`')],
+      ], { title: 'Select text, then pick a style' });
+      menu.style.top = `${Math.max(6, r.top - menu.offsetHeight - 6)}px`;
+    });
   }
+  document.getElementById('cs-reply-x')?.addEventListener('click', () => { csReply = null; renderCommunityStage(); input?.focus(); });
+  const search = document.getElementById('cs-search');
+  if (search) {
+    if (searchFocus) {
+      search.focus({ preventScroll: true });
+      search.setSelectionRange(search.value.length, search.value.length);
+    }
+    search.addEventListener('input', () => { csSearch = search.value; renderCommunityStage(); });
+    search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); csSearch = null; renderCommunityStage(); input?.focus(); } });
+  }
+  document.getElementById('cs-search-x')?.addEventListener('click', () => { csSearch = null; renderCommunityStage(); });
+  document.getElementById('cs-search-btn')?.addEventListener('click', () => {
+    csSearch = csSearch == null ? '' : null;
+    renderCommunityStage();
+    document.getElementById('cs-search')?.focus();
+  });
+  document.getElementById('cs-saved-btn')?.addEventListener('click', (e) => { e.stopPropagation(); csSavedPanel(community, e.currentTarget); });
+  document.getElementById('cs-more-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const muted = csMuted(community, channel);
+    const level = csNotifyLevel(community);
+    const setPref = (k) => () => { prefs[k] = !prefs[k]; csSave(); renderCommunityStage(); };
+    const setLevel = (v) => () => { st.notify[community.id] = v; csSave(); renderCommunities(); };
+    scMenu(r.right - 230, r.bottom + 6, [
+      ['Mark as read', () => { csMarkRead(community, channel); renderCommunities(); renderCommunityStage(); }],
+      [muted ? 'Unmute this channel' : 'Mute this channel', () => {
+        if (muted) delete st.mute[draftKey]; else st.mute[draftKey] = true;
+        csSave();
+        renderCommunities();
+        renderCommunityStage();
+      }],
+      '-',
+      ['Compact messages', setPref('compact'), { check: true, on: !!prefs.compact }],
+      ['Always show times', setPref('times'), { check: true, on: !!prefs.times }],
+      ['Sound when mentioned', setPref('ping'), { check: true, on: !!prefs.ping }],
+      '-',
+      ['Notify for every message', setLevel('all'), { check: true, on: level === 'all' }],
+      ['Notify only for mentions', setLevel('mentions'), { check: true, on: level === 'mentions' }],
+      ['Never notify', setLevel('none'), { check: true, on: level === 'none' }],
+    ], { title: `#${channel.name}` });
+  });
   document.getElementById('cs-compose')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const text = (input?.value || '').trim();
+    let text = scShortcodes((input?.value || '').trim());
     if (!text) return;
+    const sentReply = csReply && csReply.key === draftKey ? csReply : null;
+    if (sentReply) text = scReplyText(sentReply.name, sentReply.text, text, 500);
+    const typed = input.value;
+    input.value = '';
+    delete st.drafts[draftKey];
+    st.sent[draftKey] = typed;
+    csSave();
+    syncSend();
     try {
       await window.nebula.communitiesSend({ id: community.id, channelId: channel.id, text });
-      input.value = '';
-      syncSend();
+      if (sentReply) { csReply = null; renderCommunityStage(); }
+      csMarkRead(community, channel);
     } catch (err) {
+      if (!input.value) { input.value = typed; st.drafts[draftKey] = typed; csSave(); syncSend(); }
       showToast("Couldn't send", err?.message || String(err), 'error');
     }
   });
+  if (q && box) csMarkHits(box, q);
 }
 
 document.getElementById('cs-close')?.addEventListener('click', (e) => {
   e.stopPropagation();
   closeCommunityStage();
 });
+
+const CS_ICON = {
+  reply: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>',
+  at: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 5 18.7l-1-1.7A8 8 0 1 1 20 12v1.4c0 .9-.7 1.6-1.5 1.6s-1.5-.7-1.5-1.6V12a5 5 0 1 0-1.5 3.6A3.5 3.5 0 0 0 22 13.4V12A10 10 0 0 0 12 2zm0 13a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11z"/></svg>',
+  save: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg>',
+  more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>',
+  down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16.5 5 9.5 6.4 8l5.6 5.6L17.6 8 19 9.5z"/></svg>',
+  emoji: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-3.5-9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm7 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM12 17.5a5.5 5.5 0 0 0 5.1-3.5H6.9a5.5 5.5 0 0 0 5.1 3.5z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6zM19 4h-3.5l-1-1h-5l-1 1H5v2h14z"/></svg>',
+};
+
+// Who in the open community is on the launcher right now (beta).
+let csOnline = new Set();
+let csOnlineAt = 0;
+let csOnlineTimer = null;
+async function csRefreshOnline(force = false) {
+  if (!betaLayoutOn()) return;
+  if (!csOnlineTimer) {
+    csOnlineTimer = setInterval(() => {
+      if (!openCommunityId || document.hidden) return;
+      csRefreshOnline(true);
+    }, 30000);
+  }
+  if (!force && Date.now() - csOnlineAt < 30000) return;
+  csOnlineAt = Date.now();
+  try {
+    const data = await window.nebula.onlineList();
+    const next = new Set((data?.people || []).map((p) => normVoiceId(p.uuid)).filter(Boolean));
+    const changed = next.size !== csOnline.size || [...next].some((u) => !csOnline.has(u));
+    csOnline = next;
+    if (changed && openCommunityId) renderCommunityStage();
+  } catch { /* offline: keep the last list */ }
+}
+
+function csMarkHits(box, q) {
+  const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement?.closest('.cs-msg-text, .cs-msg-name') && !n.parentElement.closest('mark')
+      ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  const hits = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.nodeValue.toLowerCase().includes(q)) hits.push(n);
+  for (const n of hits) {
+    const frag = document.createDocumentFragment();
+    const s = n.nodeValue;
+    const low = s.toLowerCase();
+    let i = 0;
+    for (let at = low.indexOf(q); at !== -1; at = low.indexOf(q, i)) {
+      frag.append(s.slice(i, at));
+      const mk = document.createElement('mark');
+      mk.className = 'cs-hit';
+      mk.textContent = s.slice(at, at + q.length);
+      frag.append(mk);
+      i = at + q.length;
+    }
+    frag.append(s.slice(i));
+    n.replaceWith(frag);
+  }
+}
+
+function csCurrent() {
+  const c = readCommunities().find((x) => x.id === openCommunityId);
+  const ch = c?.channels?.find((x) => x.id === openChannelId);
+  return c && ch ? { c, ch } : null;
+}
+
+function csFlash(mid) {
+  const box = document.getElementById('cs-msgs');
+  const row = box && [...box.querySelectorAll('.cs-msg')].find((r) => r.dataset.mid === mid);
+  if (!row) return false;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.classList.remove('flash');
+  void row.offsetWidth;
+  row.classList.add('flash');
+  setTimeout(() => row.classList.remove('flash'), 1600);
+  return true;
+}
+
+function csJumpTo(cid, chid, mid) {
+  const go = () => {
+    if (!csFlash(mid)) showToast('Message gone', 'That message has expired. Community messages only last 3 days.', 'info');
+  };
+  if (openCommunityId === cid && openChannelId === chid) { csSearch = null; renderCommunityStage(); go(); return; }
+  openCommunityStage(cid, chid);
+  requestAnimationFrame(() => requestAnimationFrame(go));
+}
+
+function csSavedPanel(community, anchor) {
+  const old = document.querySelector('.cs-saved');
+  if (old) { old.remove(); if (old.dataset.for === community.id) return; }
+  const st = csState();
+  const pop = document.createElement('div');
+  pop.className = 'cs-saved';
+  pop.dataset.for = community.id;
+  const paint = () => {
+    const items = st.saved.filter((s) => s.cid === community.id).sort((a, b) => b.savedAt - a.savedAt);
+    pop.innerHTML = `
+      <div class="cs-saved-head"><b>Saved messages</b><span>${items.length || 'None yet'}</span></div>
+      <div class="cs-saved-list">${items.length ? items.map((s) => {
+        const r = scParseReply(s.text);
+        return `<div class="cs-saved-item" data-id="${escapeHtml(s.id)}" data-ch="${escapeHtml(s.chid)}">
+          <img src="${frAvatar(s.from)}" alt="">
+          <div class="cs-saved-body">
+            <div class="cs-saved-meta"><b>${escapeHtml(s.name || 'Someone')}</b><span>#${escapeHtml(s.chName || '')}</span><time>${s.at ? scAgo(s.at) : ''}</time></div>
+            <div class="cs-saved-text">${scRich(r ? r.body : s.text, { me: myName() })}</div>
+          </div>
+          <div class="cs-saved-acts">
+            <button type="button" data-a="jump" title="Jump to message">Jump</button>
+            <button type="button" data-a="drop" title="Remove">${CS_ICON.trash}</button>
+          </div>
+        </div>`;
+      }).join('') : `<div class="cs-saved-empty">${CS_ICON.save}<span>Hover a message and press the bookmark to keep it here. Saved messages stay on this PC.</span></div>`}</div>`;
+  };
+  paint();
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = `${Math.round(r.bottom + 8)}px`;
+  pop.style.left = `${Math.round(Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)))}px`;
+  pop.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const btn = e.target.closest('button[data-a]');
+    const item = e.target.closest('.cs-saved-item');
+    if (!btn || !item) return;
+    if (btn.dataset.a === 'drop') {
+      st.saved = st.saved.filter((s) => !(s.cid === community.id && s.id === item.dataset.id));
+      csSave();
+      paint();
+      renderCommunityStage();
+    } else {
+      pop.remove();
+      csJumpTo(community.id, item.dataset.ch, item.dataset.id);
+    }
+  });
+  const off = (e) => {
+    if (pop.contains(e.target) || anchor.contains(e.target)) return;
+    pop.remove();
+    document.removeEventListener('mousedown', off, true);
+  };
+  document.addEventListener('mousedown', off, true);
+}
+
+function csMsgMenu(c, ch, m, x, y) {
+  const reply = scParseReply(m.text);
+  const body = reply ? reply.body : String(m.text || '');
+  const mine = csIsMine(m);
+  const saved = csIsSaved(c, ch.id, m);
+  const input = document.getElementById('cs-input');
+  scMenu(x, y, [
+    ['Reply', () => csStartReply(c, ch, m)],
+    ...(mine ? [] : [['Mention', () => { if (input) { scInsert(input, `@${m.name} `); } }]]),
+    ['Copy text', () => csCopy(body, 'Message')],
+    ['Quote', () => { if (input) scInsert(input, `> ${body.slice(0, 120)} `); }],
+    [saved ? 'Remove from saved' : 'Save message', () => { csToggleSaved(c, ch, m); renderCommunityStage(); }],
+    '-',
+    ...(mine ? [] : [
+      ['View profile', () => openProfile({ uuid: m.from, name: m.name })],
+      ['Player options…', () => showPeopleMenu({ uuid: m.from, name: m.name }, x, y)],
+      ['Report message', () => openReport({ uuid: m.from, name: m.name, context: { where: `${c.name} #${ch.name}`, text: m.text, at: m.at } }), { danger: true }],
+    ]),
+    ...(m.at ? [['Copy time', () => csCopy(new Date(m.at).toLocaleString(), 'Time'), { hint: csClock(m.at) }]] : []),
+  ], { title: m.name || 'Message' });
+}
+
+function csStartReply(c, ch, m) {
+  const reply = scParseReply(m.text);
+  csReply = { key: msgKey(c.id, ch.id), name: m.name || 'Someone', text: (reply ? reply.body : String(m.text || '')).replace(/\s+/g, ' ').trim() };
+  renderCommunityStage();
+  document.getElementById('cs-input')?.focus();
+}
+
+(function wireCsMain() {
+  const main = document.getElementById('cs-main');
+  if (!main) return;
+  const msgOf = (el) => {
+    const row = el.closest('.cs-msg');
+    const cur = csCurrent();
+    if (!row || !cur) return null;
+    const m = csMsgs(cur.c, cur.ch).find((x) => csMsgId(x) === row.dataset.mid);
+    return m ? { ...cur, m, row } : null;
+  };
+  main.addEventListener('click', (e) => {
+    const chip = e.target.closest('.cs-reply-chip');
+    if (chip) {
+      e.stopPropagation();
+      const cur = csCurrent();
+      if (!cur) return;
+      const quote = (chip.dataset.quote || '').replace(/…$/, '').trim().toLowerCase();
+      const to = (chip.dataset.jump || '').toLowerCase();
+      const row = chip.closest('.cs-msg');
+      const msgs = csMsgs(cur.c, cur.ch);
+      const before = msgs.slice(0, Math.max(0, msgs.findIndex((x) => csMsgId(x) === row?.dataset.mid)));
+      const hit = [...before].reverse().find((x) => (x.name || '').toLowerCase() === to
+        && (!quote || (scParseReply(x.text)?.body || x.text || '').replace(/\s+/g, ' ').toLowerCase().startsWith(quote.slice(0, 40))));
+      if (!hit || !csFlash(csMsgId(hit))) showToast('Not found', "The original message isn't here anymore.", 'info');
+      return;
+    }
+    const btn = e.target.closest('.cs-mtools button[data-t]');
+    if (!btn) return;
+    const hit = msgOf(btn);
+    if (!hit) return;
+    e.stopPropagation();
+    const { c, ch, m } = hit;
+    const input = document.getElementById('cs-input');
+    switch (btn.dataset.t) {
+      case 'reply': csStartReply(c, ch, m); break;
+      case 'at': if (input) scInsert(input, `@${m.name} `); break;
+      case 'copy': csCopy(scParseReply(m.text)?.body ?? String(m.text || ''), 'Message'); break;
+      case 'save': csToggleSaved(c, ch, m); renderCommunityStage(); break;
+      case 'more': { const r = btn.getBoundingClientRect(); csMsgMenu(c, ch, m, r.left - 190, r.bottom + 4); break; }
+      default: break;
+    }
+  });
+  main.addEventListener('contextmenu', (e) => {
+    if (!betaLayoutOn() || e.target.closest('a, input, textarea, .cs-msg-name, .cs-msg-face')) return;
+    const hit = msgOf(e.target);
+    if (!hit) return;
+    e.preventDefault();
+    e.stopPropagation();
+    csMsgMenu(hit.c, hit.ch, hit.m, e.clientX, e.clientY);
+  });
+  main.addEventListener('dblclick', (e) => {
+    if (!betaLayoutOn() || e.target.closest('a, button, input, .cs-msg-text')) return;
+    const hit = msgOf(e.target);
+    if (hit) csStartReply(hit.c, hit.ch, hit.m);
+  });
+})();
+
+// Alt+Up/Down: previous/next channel. Alt+Shift+Up/Down: next unread. Ctrl+F: search.
+document.addEventListener('keydown', (e) => {
+  if (!betaLayoutOn() || !openCommunityId) return;
+  const stage = document.getElementById('community-stage');
+  if (!stage || stage.classList.contains('hidden')) return;
+  if (document.querySelector('.modal-overlay:not(.hidden), #mod-modal:not(.hidden)')) return;
+  const c = readCommunities().find((x) => x.id === openCommunityId);
+  if (!c) return;
+  if (e.altKey && !e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    const order = [...document.querySelectorAll('#cs-channels .cs-ch[data-ch]')].map((b) => b.dataset.ch);
+    const chans = order.map((id) => c.channels.find((x) => x.id === id)).filter(Boolean);
+    if (!chans.length) return;
+    e.preventDefault();
+    const dir = e.key === 'ArrowUp' ? -1 : 1;
+    let i = chans.findIndex((x) => x.id === openChannelId);
+    for (let n = 0; n < chans.length; n++) {
+      i = (i + dir + chans.length) % chans.length;
+      if (!e.shiftKey || (chans[i].kind === 'text' && csUnread(c, chans[i]).n)) { openCommunityStage(c.id, chans[i].id); return; }
+    }
+    if (e.shiftKey) showToast('All caught up', 'No unread channels here.', 'info');
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
+    const ch = c.channels?.find((x) => x.id === openChannelId);
+    if (ch?.kind !== 'text') return;
+    e.preventDefault();
+    if (csSearch == null) { csSearch = ''; renderCommunityStage(); }
+    const s = document.getElementById('cs-search');
+    s?.focus();
+    s?.select();
+  }
+});
+
+// Toasts for new community messages (beta). Respects mutes and notify levels.
+function csNotifyNew(prev, next) {
+  const me = myVoiceId();
+  const st = csState();
+  const stage = document.getElementById('community-stage');
+  let shown = 0;
+  let ping = false;
+  for (const c of next) {
+    const old = prev.find((p) => p.id === c.id);
+    if (!old) continue;
+    const level = csNotifyLevel(c);
+    if (level === 'none') continue;
+    for (const ch of c.channels || []) {
+      if (ch.kind !== 'text') continue;
+      const viewing = openCommunityId === c.id && openChannelId === ch.id && !document.hidden && !stage?.classList.contains('hidden');
+      if (viewing) continue;
+      const had = new Set((old.messages?.[ch.id] || []).map(csMsgId));
+      const muted = csMuted(c, ch);
+      for (const m of csMsgs(c, ch)) {
+        if (had.has(csMsgId(m)) || normVoiceId(m.from) === me) continue;
+        if (m.at && Date.now() - m.at > 2 * 60 * 1000) continue;
+        const mention = csMentionsMe(m);
+        if (!mention && (level !== 'all' || muted)) continue;
+        if (mention) ping = true;
+        if (shown >= 3) continue;
+        shown++;
+        const r = scParseReply(m.text);
+        const body = (r ? r.body : String(m.text || '')).replace(/\s+/g, ' ').slice(0, 140);
+        const el = showToast(
+          `${escapeHtml(m.name || 'Someone')}${mention ? ' mentioned you' : ''} <span class="cs-toast-where">${escapeHtml(c.name)} · #${escapeHtml(ch.name)}</span>`,
+          escapeHtml(body), 'info');
+        if (el) {
+          el.classList.add('cs-toast');
+          el.addEventListener('click', () => openCommunityStage(c.id, ch.id));
+        }
+      }
+    }
+  }
+  if (ping && st.prefs.ping) scPing();
+}
 
 async function openCommunityInvite(community) {
   const pop = document.getElementById('cs-invite-pop');
@@ -3028,8 +4057,15 @@ function applyBetaLayout(on) {
   const active = document.querySelector('.view.active');
   const view = active ? active.id.replace(/^view-/, '') : 'launchpad';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  requestAnimationFrame(navInk);
   renderAccountBox();
   renderCommunities();
+  // Beta floating panels all share the admin panel's glass, so the extra
+  // per-panel blur only applies in the stable layout.
+  for (const el of document.querySelectorAll('#live-chat, #online-pop')) {
+    if (on && el.dataset.lqBlur) { el.dataset.lqBlurStable = el.dataset.lqBlur; delete el.dataset.lqBlur; }
+    else if (!on && el.dataset.lqBlurStable) { el.dataset.lqBlur = el.dataset.lqBlurStable; delete el.dataset.lqBlurStable; }
+  }
   try { window.SolarLiquidGlass?.refreshAll?.(); } catch { /* glass engine optional */ }
 }
 
@@ -5226,12 +6262,335 @@ function openReport(person) { reportApi?.open(person); }
   });
 })();
 
+// ---------- shared chat helpers (beta) ----------
+// Live chat and communities share one message format. The server only stores
+// plain text, so replies, mentions and formatting are conventions in the text
+// that older launchers still show as readable plain text.
+
+function myName() {
+  return friendsState?.self?.name || window.__myAccountName || '';
+}
+window.nebula.currentAccount?.().then((a) => { if (a?.name) window.__myAccountName = a.name; }).catch(() => {});
+
+const SC_REPLY_RE = /^> @([A-Za-z0-9_]{2,16}) ([^\n]*)\n([\s\S]+)$/;
+/** "> @Name quoted text\nreply" -> { to, quote, body } or null. */
+function scParseReply(text) {
+  const m = SC_REPLY_RE.exec(String(text || ''));
+  return m ? { to: m[1], quote: m[2], body: m[3] } : null;
+}
+function scReplyText(to, quote, body, max) {
+  const clean = String(quote || '').replace(/^> @\w+ [^\n]*\n/, '').replace(/\s+/g, ' ').trim();
+  const head = `> @${to} `;
+  const room = Math.max(0, Math.min(70, max - head.length - body.length - 2));
+  const q = clean.length > room ? `${clean.slice(0, Math.max(0, room - 1))}…` : clean;
+  return `${head}${q}\n${body}`;
+}
+
+const SC_SHORTCODES = {
+  ':)': '🙂', ':D': '😄', ';)': '😉', ':(': '🙁', ':P': '😛', '<3': '❤️',
+  ':fire:': '🔥', ':skull:': '💀', ':heart:': '❤️', ':thumbsup:': '👍', ':+1:': '👍', ':joy:': '😂',
+  ':sob:': '😭', ':eyes:': '👀', ':pray:': '🙏', ':100:': '💯', ':tada:': '🎉', ':gg:': '🎮',
+  ':pick:': '⛏️', ':sword:': '🗡️', ':diamond:': '💎', ':creeper:': '💚', ':clap:': '👏', ':wave:': '👋',
+};
+/** Turns :fire:-style codes into emoji before a message is sent. */
+function scShortcodes(text) {
+  return String(text || '').replace(/(^|\s)(:[a-z0-9+_]+:|:\)|:D|;\)|:\(|:P|<3)(?=\s|$)/g, (m, pre, code) => (SC_SHORTCODES[code] ? pre + SC_SHORTCODES[code] : m));
+}
+
+const SC_EMOJI_ONLY = /^(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*\s*){1,3}$/u;
+
+/** Message text -> safe HTML with links, mentions, **bold**, *italic*, __underline__, ~~strike~~, ||spoiler|| and `code`. */
+function scRich(text, { me = myName() } = {}) {
+  const s = String(text ?? '');
+  const meLow = String(me || '').toLowerCase();
+  const inline = (raw) => {
+    let out = escapeHtml(raw);
+    out = out.replace(/\|\|(.+?)\|\|/g, '<span class="sc-spoiler" tabindex="0" title="Click to show">$1</span>');
+    out = out.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    out = out.replace(/__(.+?)__/g, '<u>$1</u>');
+    out = out.replace(/~~(.+?)~~/g, '<s>$1</s>');
+    out = out.replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, '$1<i>$2</i>');
+    out = out.replace(/(^|[^\w@])@([A-Za-z0-9_]{2,16})\b/g, (m, pre, n) =>
+      `${pre}<span class="sc-mention${n.toLowerCase() === meLow || n.toLowerCase() === 'everyone' ? ' me' : ''}">@${n}</span>`);
+    return out;
+  };
+  const withLinks = (raw) => {
+    let out = '';
+    let last = 0;
+    for (const m of raw.matchAll(MSG_LINK_RE)) {
+      const url = m[0].replace(/[.,!?;:)\]}]+$/, '');
+      out += inline(raw.slice(last, m.index));
+      out += `<a class="msg-link" href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
+      last = m.index + url.length;
+    }
+    return out + inline(raw.slice(last));
+  };
+  let html = '';
+  let last = 0;
+  for (const m of s.matchAll(/```([\s\S]+?)```|`([^`\n]+)`/g)) {
+    html += withLinks(s.slice(last, m.index));
+    html += m[1] != null ? `<pre class="sc-code">${escapeHtml(m[1].replace(/^\n/, ''))}</pre>` : `<code class="sc-code">${escapeHtml(m[2])}</code>`;
+    last = m.index + m[0].length;
+  }
+  return html + withLinks(s.slice(last));
+}
+
+/** Does this message mention me (or @everyone)? */
+function scMentionsMe(text, me = myName()) {
+  if (!me) return false;
+  const low = String(text || '').toLowerCase();
+  const name = me.toLowerCase();
+  return new RegExp(`(^|[^\\w@])@(${name.replace(/[^a-z0-9_]/g, '')}|everyone)\\b`).test(low);
+}
+
+document.addEventListener('click', (e) => {
+  const sp = e.target.closest?.('.sc-spoiler');
+  if (sp) { sp.classList.add('shown'); e.stopPropagation(); }
+}, true);
+
+/** A small floating menu at a point: items are [label, fn, opts] or '-' for a divider. */
+function scMenu(x, y, items, { title } = {}) {
+  document.querySelector('.sc-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.className = 'sc-menu';
+  if (title) menu.innerHTML = `<div class="sc-menu-title">${escapeHtml(title)}</div>`;
+  for (const it of items) {
+    if (it === '-') { menu.insertAdjacentHTML('beforeend', '<div class="sc-menu-sep"></div>'); continue; }
+    const [label, fn, opts = {}] = it;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `sc-menu-item${opts.danger ? ' danger' : ''}${opts.on ? ' on' : ''}`;
+    b.innerHTML = `<span>${escapeHtml(label)}</span>${opts.hint ? `<kbd>${escapeHtml(opts.hint)}</kbd>` : ''}${opts.check ? `<i class="sc-check${opts.on ? ' on' : ''}"></i>` : ''}`;
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); if (!opts.keep) menu.remove(); fn?.(b); });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = `${Math.max(6, Math.min(x, window.innerWidth - mw - 6))}px`;
+  menu.style.top = `${Math.max(6, Math.min(y, window.innerHeight - mh - 6))}px`;
+  const dismiss = (ev) => {
+    if (menu.contains(ev.target)) return;
+    menu.remove();
+    document.removeEventListener('mousedown', dismiss, true);
+    document.removeEventListener('keydown', onKey, true);
+  };
+  const onKey = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); dismiss({ target: document.body }); } };
+  setTimeout(() => {
+    document.addEventListener('mousedown', dismiss, true);
+    document.addEventListener('keydown', onKey, true);
+  }, 0);
+  return menu;
+}
+
+const SC_EMOJI = [
+  ['Smileys', '😀 😃 😄 😁 😆 😅 😂 🤣 🙂 😉 😊 😇 🥰 😍 😘 😋 😛 😜 🤪 😎 🤩 🥳 😏 😮 😲 😳 🥺 😢 😭 😤 😡 🤯 😱 🤔 🤫 🙄 😴 🤤 😬 🫠 💀 👻 🤖 👽'],
+  ['Hands', '👍 👎 👏 🙌 👋 🤝 🙏 💪 ✌️ 🤞 👌 🤙 👀 🫡 🫶'],
+  ['Game', '🎮 ⛏️ 🗡️ 🏹 🛡️ 💎 🔥 🧱 🌲 🪓 🧭 🗺️ 🏰 🐷 🐄 🐑 🐔 🐺 🐝 🍖 🍞 🍎 🎣 ⚔️ 🏆 🥇 🎯 🎲'],
+  ['Symbols', '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💯 ✨ ⭐ 🌟 ⚡ 💥 💫 🎉 🎊 ✅ ❌ ⚠️ ❓ ❗ 💬 🔔 🔇 🕐 📌 🚀 🌙 ☀️ 🌈'],
+];
+const SC_EMOJI_RECENT = 'sc.emoji.recent';
+/** Emoji grid next to a button; calls onPick(emoji). */
+function scEmojiPicker(anchor, onPick) {
+  const old = document.querySelector('.sc-emoji');
+  if (old) { old.remove(); if (old._anchor === anchor) return; }
+  let recent = [];
+  try { recent = JSON.parse(localStorage.getItem(SC_EMOJI_RECENT) || '[]').slice(0, 16); } catch { recent = []; }
+  const pop = document.createElement('div');
+  pop.className = 'sc-emoji';
+  pop._anchor = anchor;
+  const groups = recent.length ? [['Recent', recent.join(' ')], ...SC_EMOJI] : SC_EMOJI;
+  pop.innerHTML = `<input class="sc-emoji-q" placeholder="Search: fire, heart, sword…" maxlength="20">
+    <div class="sc-emoji-scroll">${groups.map(([name, list]) => `<div class="sc-emoji-group">${name}</div><div class="sc-emoji-grid">${
+    list.split(' ').filter(Boolean).map((e) => `<button type="button" data-e="${e}">${e}</button>`).join('')}</div>`).join('')}</div>`;
+  document.body.appendChild(pop);
+  const r = scRect(anchor);
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  pop.style.left = `${Math.max(8, Math.min(r.right - pw, window.innerWidth - pw - 8))}px`;
+  pop.style.top = `${r.top - ph - 8 > 8 ? r.top - ph - 8 : Math.min(r.bottom + 8, window.innerHeight - ph - 8)}px`;
+  const names = Object.entries(SC_SHORTCODES).filter(([k]) => k.startsWith(':') && k.endsWith(':'));
+  const q = pop.querySelector('.sc-emoji-q');
+  q.addEventListener('input', () => {
+    const v = q.value.trim().toLowerCase();
+    const hits = new Set(names.filter(([k]) => k.includes(v)).map(([, e]) => e));
+    pop.querySelectorAll('.sc-emoji-grid button').forEach((b) => b.classList.toggle('dim', !!v && !hits.has(b.dataset.e)));
+  });
+  pop.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-e]');
+    if (!b) return;
+    e.stopPropagation();
+    const em = b.dataset.e;
+    try { localStorage.setItem(SC_EMOJI_RECENT, JSON.stringify([em, ...recent.filter((x) => x !== em)].slice(0, 16))); } catch { /* full */ }
+    onPick(em);
+    if (!e.shiftKey) pop.remove();
+  });
+  const dismiss = (ev) => {
+    if (pop.contains(ev.target) || anchor.contains(ev.target)) return;
+    pop.remove();
+    document.removeEventListener('mousedown', dismiss, true);
+  };
+  setTimeout(() => document.addEventListener('mousedown', dismiss, true), 0);
+  setTimeout(() => q.focus(), 20);
+}
+
+/** Insert text at the caret of an input and keep focus there. */
+function scInsert(input, text) {
+  const a = input.selectionStart ?? input.value.length;
+  const b = input.selectionEnd ?? input.value.length;
+  const next = input.value.slice(0, a) + text + input.value.slice(b);
+  if (input.maxLength > 0 && next.length > input.maxLength) return;
+  input.value = next;
+  input.focus();
+  input.setSelectionRange(a + text.length, a + text.length);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/** @name suggestions while typing in a chat box. people() -> [{ uuid, name }]. */
+function scMentionAuto(input, people) {
+  const pop = document.createElement('div');
+  pop.className = 'sc-mentions hidden';
+  document.body.appendChild(pop);
+  let items = [];
+  let sel = 0;
+  const word = () => {
+    const upto = input.value.slice(0, input.selectionStart ?? input.value.length);
+    const m = /(^|\s)@([A-Za-z0-9_]{0,16})$/.exec(upto);
+    return m ? { q: m[2], at: upto.length - m[2].length - 1 } : null;
+  };
+  const hide = () => { pop.classList.add('hidden'); items = []; };
+  const paint = () => {
+    pop.innerHTML = items.map((p, i) => `<button type="button" class="${i === sel ? 'sel' : ''}" data-i="${i}">
+      <img src="${frAvatar(p.uuid)}" alt=""><span>${escapeHtml(p.name)}</span>${p.hint ? `<em>${escapeHtml(p.hint)}</em>` : ''}</button>`).join('');
+    const r = scRect(input);
+    pop.classList.remove('hidden');
+    pop.style.left = `${Math.round(r.left)}px`;
+    pop.style.width = `${Math.round(Math.min(260, r.width))}px`;
+    pop.style.top = `${Math.round(r.top - pop.offsetHeight - 6)}px`;
+  };
+  const pick = (p) => {
+    const w = word();
+    if (!w) return hide();
+    const before = input.value.slice(0, w.at);
+    const after = input.value.slice(input.selectionStart ?? input.value.length);
+    input.value = `${before}@${p.name} ${after}`;
+    const pos = before.length + p.name.length + 2;
+    input.setSelectionRange(pos, pos);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    hide();
+  };
+  const update = () => {
+    const w = word();
+    if (!w) return hide();
+    const q = w.q.toLowerCase();
+    const seen = new Set();
+    items = [{ uuid: '', name: 'everyone', hint: 'Notify everyone here' }, ...(people() || [])]
+      .filter((p) => p?.name && !seen.has(p.name.toLowerCase()) && seen.add(p.name.toLowerCase()) && p.name.toLowerCase().startsWith(q))
+      .slice(0, 6);
+    if (!items.length) return hide();
+    sel = Math.min(sel, items.length - 1);
+    paint();
+  };
+  input.addEventListener('input', update);
+  input.addEventListener('click', update);
+  input.addEventListener('blur', () => setTimeout(hide, 120));
+  input.addEventListener('keydown', (e) => {
+    if (pop.classList.contains('hidden') || !items.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      paint();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      pick(items[sel]);
+    } else if (e.key === 'Escape') {
+      e.stopImmediatePropagation();
+      hide();
+    }
+  }, true);
+  pop.addEventListener('mousedown', (e) => {
+    const b = e.target.closest('button[data-i]');
+    if (!b) return;
+    e.preventDefault();
+    pick(items[Number(b.dataset.i)]);
+  });
+  return { hide, destroy: () => pop.remove() };
+}
+
+/** Short soft ping for a mention. */
+function scPing() {
+  try {
+    const ctx = scPing.ctx ||= new AudioContext();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.08);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    o.connect(g).connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.26);
+  } catch { /* no audio */ }
+}
+
+function scAgo(t) {
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+/**
+ * Beta floating panels grow and shrink their contents with the box: text and
+ * controls scale with the width between 90% and 122%, so a bigger box shows
+ * bigger, not just emptier, and a small one never clips.
+ */
+function scPanelScale(panel, baseW) {
+  if (!panel || panel._scScale) return;
+  panel._scScale = true;
+  const apply = () => {
+    if (!betaLayoutOn()) { panel.style.removeProperty('--sc-zoom'); return; }
+    const w = panel.offsetWidth;
+    if (!w) return;
+    const z = Math.max(0.9, Math.min(1.22, w / baseW));
+    panel.style.setProperty('--sc-zoom', z.toFixed(3));
+    panel.classList.toggle('sc-wide', w / z >= 540);
+    panel.classList.toggle('sc-narrow', w / z < 380);
+  };
+  new ResizeObserver(apply).observe(panel);
+  apply();
+}
+
 // ---------- Moderation panel (head mods + in-game admins) ----------
 // Purely a view: every action is a request the server checks against the
 // two mod accounts, so showing this to anyone else would get them nothing.
+// Chromium before 128 reports rects inside a `zoom`ed box in that box's own
+// units, so popups anchored to something in a scaled panel land in the wrong spot.
+let scZoomLegacy = null;
+/** getBoundingClientRect in real window pixels, even inside a scaled panel. */
+function scRect(el) {
+  const r = el.getBoundingClientRect();
+  const host = el.closest?.('#live-chat, #mod-modal .mod-panel');
+  const z = host ? parseFloat(host.style.getPropertyValue('--sc-zoom')) : 1;
+  if (!z || z === 1) return r;
+  if (scZoomLegacy === null) {
+    const a = document.createElement('div');
+    a.style.cssText = 'position:fixed;left:0;top:0;zoom:2;visibility:hidden;pointer-events:none';
+    a.innerHTML = '<div style="margin-left:10px;width:4px;height:4px"></div>';
+    document.body.appendChild(a);
+    scZoomLegacy = Math.abs(a.firstChild.getBoundingClientRect().left - 10) < 1;
+    a.remove();
+  }
+  if (!scZoomLegacy) return r;
+  return { left: r.left * z, top: r.top * z, right: r.right * z, bottom: r.bottom * z, width: r.width * z, height: r.height * z, x: r.left * z, y: r.top * z };
+}
+
 /** Beta: drop a floating panel down out of the top-bar button that opened it. */
 function popDown(panel, chip) {
   if (!panel || !betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  clearTimeout(panel._popOutTimer);
+  panel.classList.remove('sc-pop-out');
   const r = panel.getBoundingClientRect();
   const c = chip?.getBoundingClientRect();
   const ox = c ? Math.max(0, Math.min(r.width, c.left + c.width / 2 - r.left)) : r.width / 2;
@@ -5241,6 +6600,19 @@ function popDown(panel, chip) {
   panel.classList.add('sc-pop');
   clearTimeout(panel._popTimer);
   panel._popTimer = setTimeout(() => panel.classList.remove('sc-pop'), 900);
+  chip?.classList.remove('sc-chip-press');
+  void chip?.offsetWidth;
+  chip?.classList.add('sc-chip-press');
+}
+
+/** Beta: fold a panel back up into its button, then run hide(). */
+function popClose(panel, hide) {
+  if (!panel || !betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches || panel.classList.contains('hidden')) { hide(); return; }
+  clearTimeout(panel._popTimer);
+  panel.classList.remove('sc-pop');
+  panel.classList.add('sc-pop-out');
+  clearTimeout(panel._popOutTimer);
+  panel._popOutTimer = setTimeout(() => { panel.classList.remove('sc-pop-out'); hide(); }, 190);
 }
 
 (function wireModeration() {
@@ -5336,15 +6708,20 @@ function popDown(panel, chip) {
     $('mod-ff-all').textContent = String(data.flags.length);
     $('mod-ff-hate').textContent = String(data.flags.filter(loud).length);
     $('mod-ff-swear').textContent = String(data.flags.length - data.flags.filter(loud).length);
+    const review = data.flags.filter(loud).length + data.reports.length;
+    const bits = [review ? `${review} to review` : 'Nothing to review',
+      `${data.bans.length} ${data.bans.length === 1 ? 'ban' : 'bans'}`, `${data.mutes.length} ${data.mutes.length === 1 ? 'mute' : 'mutes'}`];
+    $('mod-sub').textContent = bits.join(' · ');
+    $('mod-sub').classList.toggle('busy', review > 0);
   }
 
   const actBtns = () => `
     <div class="mod-flag-actions">
       <button type="button" class="mod-act" data-act="delete" title="Delete">${ICON_DEL}Delete</button>
-      <button type="button" class="mod-act mute" data-act="mute">${ICON_MUTE}Mute</button>
-      <button type="button" class="mod-act ban" data-act="ban">${ICON_BAN}Ban</button>
+      <button type="button" class="mod-act mute" data-act="mute" title="Mute in live chat">${ICON_MUTE}Mute</button>
+      <button type="button" class="mod-act ban" data-act="ban" title="Ban from SolarClient">${ICON_BAN}Ban</button>
     </div>`;
-  const newDot = (on) => (on ? '<span class="mod-new-dot" title="New since you last looked">New</span>' : '');
+  const newDot = (on) => (on ? '<i class="mod-new-dot" title="New since you last looked"></i>' : '');
   const empty = (icon, title, text) => `<div class="mod-empty"><span class="mod-empty-ic">${icon}</span><b>${title}</b>${text}</div>`;
 
   function renderFlags() {
@@ -5361,14 +6738,14 @@ function popDown(panel, chip) {
     flagList.innerHTML = rows.map(f => `
       <div class="mod-card mod-flag ${f.at > seen && loud(f) ? 'new' : ''} ${loud(f) ? '' : 'swear'}" data-id="${escapeHtml(f.id)}">
         <div class="mod-card-head">
-          <img class="mod-face" src="${frAvatar(f.from)}" alt="">
+          <img class="mod-face" src="${frAvatar(f.from)}" alt="" ${personAttr(f.from, f.name)}>
           <div class="mod-who">
-            <b>${escapeHtml(f.name)}${newDot(f.at > seen && loud(f))}</b>
+            <b>${newDot(f.at > seen && loud(f))}<span ${personAttr(f.from, f.name)}>${escapeHtml(f.name)}</span></b>
             <span>${escapeHtml(f.where)} · ${stamp(f.at)}</span>
           </div>
           <span class="mod-tag ${loud(f) ? 'why' : 'swear'}">${escapeHtml(f.matched || 'flagged')}</span>
         </div>
-        <div class="mod-flag-text">${escapeHtml(f.text)}</div>
+        <div class="mod-flag-text" title="Click to show all">${escapeHtml(f.text)}</div>
         ${actBtns()}
       </div>`).join('');
   }
@@ -5386,10 +6763,10 @@ function popDown(panel, chip) {
     reportList.innerHTML = rows.map(r => `
       <div class="mod-card mod-report ${r.at > seen ? 'new' : ''}" data-id="${escapeHtml(r.id)}">
         <div class="mod-card-head">
-          <img class="mod-face" src="${frAvatar(r.target)}" alt="">
+          <img class="mod-face" src="${frAvatar(r.target)}" alt="" ${personAttr(r.target, r.targetName)}>
           <div class="mod-who">
-            <b>${escapeHtml(r.targetName)}${newDot(r.at > seen)}</b>
-            <span class="mod-report-by">by <img src="${frAvatar(r.from)}" alt="">${escapeHtml(r.fromName)} · ${stamp(r.at)} · #${escapeHtml(r.id)}</span>
+            <b>${newDot(r.at > seen)}<span ${personAttr(r.target, r.targetName)}>${escapeHtml(r.targetName)}</span></b>
+            <span class="mod-report-by">reported by <img src="${frAvatar(r.from)}" alt=""><span ${personAttr(r.from, r.fromName)}>${escapeHtml(r.fromName)}</span> · ${stamp(r.at)} · #${escapeHtml(r.id)}</span>
           </div>
           <span class="mod-tag why">${escapeHtml(r.reasonLabel)}</span>
         </div>
@@ -5415,9 +6792,9 @@ function popDown(panel, chip) {
     return `
       <div class="mod-card mod-ban-row ${temp ? 'temp' : 'perm'}" ${key}>
         <div class="mod-card-head">
-          <img class="mod-face" src="${frAvatar(p.uuid)}" alt="">
+          <img class="mod-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}>
           <div class="mod-who">
-            <b>${escapeHtml(p.name)}</b>
+            <b><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span></b>
             <span>${p.byName ? `by ${escapeHtml(p.byName)} · ` : ''}${stamp(p.at)}${p.id ? ` · #${escapeHtml(p.id)}` : ''}</span>
           </div>
           <span class="mod-tag ${temp ? 'temp' : 'perm'}">${escapeHtml(temp ? p.length : 'Permanent')}</span>
@@ -5581,12 +6958,16 @@ function popDown(panel, chip) {
     localStorage.setItem(SEEN_KEY, String(Date.now()));
     unseen = 0; setBadge();
     modal.classList.remove('hidden');
+    chip.classList.add('open');
     placeBox(boxNow());
     popDown(panel, chip);
     renderAll();
     load();
   }
-  const close = () => modal.classList.add('hidden');
+  const close = () => {
+    chip.classList.remove('open');
+    popClose(panel, () => modal.classList.add('hidden'));
+  };
 
   // A tall floating box you can drag and resize, like live chat.
   const panel = modal.querySelector('.mod-panel');
@@ -5662,6 +7043,29 @@ function popDown(panel, chip) {
     window.addEventListener('mouseup', up);
   }));
   window.addEventListener('resize', () => { if (isOpen()) placeBox(boxNow()); });
+  scPanelScale(panel, 460);
+  head.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    try { localStorage.removeItem(BOX_KEY); } catch { /* ignore */ }
+    placeBox(defaultBox());
+  });
+  // 1-4 switch tabs, / searches, R refreshes; only while the panel has focus.
+  panel.tabIndex = -1;
+  panel.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select')) return;
+    const tabs = ['flags', 'reports', 'bans', 'mutes'];
+    if (/^[1-4]$/.test(e.key)) { e.preventDefault(); showTab(tabs[Number(e.key) - 1]); }
+    else if (e.key === '/') {
+      e.preventDefault();
+      const pane = modal.querySelector('.mod-pane:not(.hidden)');
+      (pane?.querySelector('.mod-search input') || search).focus();
+    } else if (e.key.toLowerCase() === 'r') { e.preventDefault(); load(); }
+  });
+  panel.addEventListener('mousedown', (e) => { if (!e.target.closest('input, textarea, button, select')) panel.focus({ preventScroll: true }); });
+  modal.addEventListener('click', (e) => {
+    const t = e.target.closest('.mod-flag-text, .mod-report-details, .mod-ban-reason');
+    if (t && !window.getSelection()?.toString()) t.classList.toggle('open');
+  });
 
   // ---- evidence viewer ----
   const viewer = $('mod-viewer');
@@ -6022,6 +7426,12 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   let data = null;
   let timer = null;
   let view = 'all';
+  let sel = -1;
+  const OP_PREFS = 'sc.online.prefs';
+  const opPrefs = () => {
+    try { return { sort: 'role', collapsed: [], ...JSON.parse(localStorage.getItem(OP_PREFS) || '{}') }; } catch { return { sort: 'role', collapsed: [] }; }
+  };
+  const setOpPref = (k, v) => { try { localStorage.setItem(OP_PREFS, JSON.stringify({ ...opPrefs(), [k]: v })); } catch { /* full */ } };
   const isOpen = () => !pop.classList.contains('hidden');
   const ROLE_ORDER = ['owner', 'admin', 'verified', 'solar+'];
   const ROLE_GROUP = { owner: 'Owners', admin: 'Admins', verified: 'Verified', 'solar+': 'Solar+' };
@@ -6036,7 +7446,21 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     const i = ROLE_ORDER.indexOf(roleKey(p));
     return i < 0 ? ROLE_ORDER.length : i;
   };
-  const inView = (p) => view === 'all' || (view === 'ingame' ? p.inGame : !!p.following && !p.self);
+  const inView = (p) => view === 'all' || (view === 'ingame' ? p.inGame
+    : view === 'friends' ? !!p.following && !!p.follower && !p.self : !!p.following && !p.self);
+  const OP_ICON = {
+    profile: '<svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>',
+    dm: '<svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>',
+    more: '<svg viewBox="0 0 24 24"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>',
+    caret: '<svg viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3"/></svg>',
+  };
+  function moveInk() {
+    const on = viewsEl?.querySelector('button.on');
+    const ink = viewsEl?.querySelector('.op-views-ink');
+    if (!on || !ink) return;
+    ink.style.width = `${on.offsetWidth}px`;
+    ink.style.transform = `translateX(${on.offsetLeft}px)`;
+  }
 
   function place() {
     const r = chip.getBoundingClientRect();
@@ -6053,62 +7477,32 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     const beta = betaLayoutOn();
     pop.classList.toggle('op-beta', beta);
     if (beta) {
-      sub.textContent = `${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
-      document.getElementById('op-n-all').textContent = String(data.total);
-      document.getElementById('op-n-ingame').textContent = String(inGame);
-      document.getElementById('op-n-following').textContent = String(data.people.filter(p => p.following && !p.self).length);
-      viewsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
-    } else {
-      sub.textContent = `${data.total} online · ${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+      renderBeta(q, inGame);
+      return;
     }
+    delete list.dataset.painted;
+    sub.textContent = `${data.total} online · ${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
     const rows = data.people
-      .filter(p => (!q || p.name.toLowerCase().includes(q)) && (!beta || inView(p)))
-      .sort(beta
-        ? (a, b) => (roleRank(a) - roleRank(b)) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name)
-        : (a, b) => (!!b.self - !!a.self) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name));
+      .filter(p => !q || p.name.toLowerCase().includes(q))
+      .sort((a, b) => (!!b.self - !!a.self) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name));
     if (!rows.length) {
-      const why = q ? 'Nobody by that name is online.'
-        : beta && view === 'ingame' ? 'Nobody is in a game right now.'
-        : beta && view === 'following' ? "Nobody you follow is online right now."
-        : 'Nobody else is showing as online right now.';
+      const why = q ? 'Nobody by that name is online.' : 'Nobody else is showing as online right now.';
       list.innerHTML = `<p class="op-empty">${why}</p>`;
       return;
     }
     list.innerHTML = '';
-    let group = -1;
     for (const p of rows) {
-      if (beta && roleRank(p) !== group) {
-        group = roleRank(p);
-        const key = ROLE_ORDER[group] || 'member';
-        const head = document.createElement('div');
-        head.className = 'op-group';
-        head.textContent = `${ROLE_GROUP[key] || 'Members'} — ${rows.filter(x => roleRank(x) === group).length}`;
-        list.appendChild(head);
-      }
       const row = document.createElement('div');
       row.className = 'op-row';
       const status = p.inGame ? '<span class="op-status ingame"><i></i>In game</span>' : '<span class="op-status"><i></i>In the launcher</span>';
       const face = `<img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}>`;
-      if (beta) {
-        const key = roleKey(p);
-        const icon = ROLE_ICON[key] ? `<svg class="op-badge" viewBox="0 0 24 24" aria-label="${escapeHtml(p.role)}"><title>${escapeHtml(p.role)}</title>${ROLE_ICON[key]}</svg>` : '';
-        const action = p.self ? ''
-          : p.following && p.follower ? '<span class="op-tag friends" title="You follow each other">Friends</span>'
-          : p.following ? '<button class="op-act" data-act="menu">Following</button>'
-          : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
-        row.dataset.role = ROLE_ICON[key] ? key : 'member';
-        row.innerHTML = `<span class="op-face-wrap">${face}<i class="op-dot${p.inGame ? ' ingame' : ''}"></i></span>
-          <div class="op-info"><span class="op-name"><span class="op-nick" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${icon}${p.self ? '<span class="op-you">you</span>' : reportFlag(p.uuid, p.name)}</span>
-          <span class="op-status">${p.inGame ? 'Playing Minecraft' : 'In the launcher'}</span></div>${action}`;
-      } else {
-        const role = p.role && p.role !== 'member' ? `<span class="op-role" data-role="${escapeHtml(roleKey(p))}">${escapeHtml(p.role)}</span>` : '';
-        const action = p.self ? '<span class="op-tag">You</span>'
-          : p.following && p.follower ? '<span class="op-tag friends">Friends</span>'
-          : p.following ? '<button class="op-act" data-act="menu">Following</button>'
-          : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
-        row.innerHTML = `${face}
-          <div class="op-info"><span class="op-name"><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${role}${p.self ? '' : reportFlag(p.uuid, p.name)}</span>${status}</div>${action}`;
-      }
+      const role = p.role && p.role !== 'member' ? `<span class="op-role" data-role="${escapeHtml(roleKey(p))}">${escapeHtml(p.role)}</span>` : '';
+      const action = p.self ? '<span class="op-tag">You</span>'
+        : p.following && p.follower ? '<span class="op-tag friends">Friends</span>'
+        : p.following ? '<button class="op-act" data-act="menu">Following</button>'
+        : `<button class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
+      row.innerHTML = `${face}
+        <div class="op-info"><span class="op-name"><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${role}${p.self ? '' : reportFlag(p.uuid, p.name)}</span>${status}</div>${action}`;
       row.querySelector('.op-face').onerror = (e) => { e.target.style.visibility = 'hidden'; };
       if (!p.self) {
         row.title = 'Right-click for options';
@@ -6132,6 +7526,115 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     }
   }
 
+  function renderBeta(q, inGame) {
+    const prefs = opPrefs();
+    const friends = data.people.filter((p) => p.following && p.follower && !p.self).length;
+    const bigN = document.getElementById('op-big-n');
+    if (bigN.textContent !== String(data.total)) {
+      bigN.textContent = String(data.total);
+      bigN.classList.remove('bump'); void bigN.offsetWidth; bigN.classList.add('bump');
+    }
+    sub.innerHTML = `<span class="op-sub-dot ingame"></span>${inGame} playing <span class="op-sub-dot"></span>${Math.max(0, data.people.length - inGame)} in the launcher${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+    document.getElementById('op-n-all').textContent = String(data.total);
+    document.getElementById('op-n-ingame').textContent = String(inGame);
+    document.getElementById('op-n-friends').textContent = String(friends);
+    document.getElementById('op-n-following').textContent = String(data.people.filter(p => p.following && !p.self).length);
+    viewsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+    requestAnimationFrame(moveInk);
+    document.getElementById('op-search-x').classList.toggle('hidden', !q);
+    const sorters = {
+      role: (a, b) => (roleRank(a) - roleRank(b)) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name),
+      name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      status: (a, b) => (!!b.inGame - !!a.inGame) || (roleRank(a) - roleRank(b)) || a.name.localeCompare(b.name),
+    };
+    const rows = data.people.filter(p => (!q || p.name.toLowerCase().includes(q)) && inView(p)).sort(sorters[prefs.sort] || sorters.role);
+    if (!rows.length) {
+      const why = q ? `Nobody called "${escapeHtml(q)}" is online.`
+        : view === 'ingame' ? 'Nobody is in a game right now.'
+        : view === 'friends' ? 'None of your friends are online. Friends are people you follow who follow you back.'
+        : view === 'following' ? 'Nobody you follow is online right now.'
+        : 'Nobody else is showing as online right now.';
+      list.innerHTML = `<div class="op-empty"><span class="op-empty-ic">${OP_ICON.profile}</span>${why}</div>`;
+      return;
+    }
+    const groupOf = (p) => (prefs.sort === 'role' ? (ROLE_ORDER[roleRank(p)] || 'member')
+      : prefs.sort === 'status' ? (p.inGame ? 'playing' : 'launcher') : 'all');
+    const groupName = { ...ROLE_GROUP, member: 'Members', playing: 'Playing Minecraft', launcher: 'In the launcher', all: 'Everyone' };
+    const collapsed = new Set(prefs.collapsed);
+    const animate = !list.dataset.painted;
+    list.dataset.painted = '1';
+    let html = '';
+    let group = null;
+    let i = 0;
+    for (const p of rows) {
+      const g = groupOf(p);
+      if (g !== group) {
+        group = g;
+        const n = rows.filter((x) => groupOf(x) === g).length;
+        html += `<button type="button" class="op-group${collapsed.has(g) ? ' shut' : ''}" data-group="${g}">${OP_ICON.caret}<span>${groupName[g] || 'Members'}</span><em>${n}</em></button>`;
+      }
+      if (collapsed.has(g)) continue;
+      const key = roleKey(p);
+      const icon = ROLE_ICON[key] ? `<svg class="op-badge" viewBox="0 0 24 24" aria-label="${escapeHtml(p.role)}"><title>${escapeHtml(p.role)}</title>${ROLE_ICON[key]}</svg>` : '';
+      const friend = p.following && p.follower;
+      const follow = p.self || p.following ? ''
+        : `<button type="button" class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
+      html += `<div class="op-row${animate ? ' op-in' : ''}" style="--i:${Math.min(i++, 14)}" data-uuid="${escapeHtml(p.uuid)}" data-role="${ROLE_ICON[key] ? key : 'member'}">
+        <span class="op-face-wrap"><img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="op-dot${p.inGame ? ' ingame' : ''}"></i></span>
+        <div class="op-info"><span class="op-name"><span class="op-nick" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${icon}${p.self ? '<span class="op-you">you</span>' : ''}${friend ? '<span class="op-friend" title="You follow each other">friend</span>' : ''}</span>
+        <span class="op-status${p.inGame ? ' ingame' : ''}">${p.inGame ? 'Playing Minecraft' : 'In the launcher'}</span></div>
+        <div class="op-tools">${p.self ? '' : `
+          <button type="button" class="op-tool" data-act="profile" title="View profile">${OP_ICON.profile}</button>
+          ${friend ? `<button type="button" class="op-tool" data-act="dm" title="Message">${OP_ICON.dm}</button>` : ''}
+          <button type="button" class="op-tool" data-act="menu" title="More">${OP_ICON.more}</button>`}</div>
+        ${follow}
+      </div>`;
+    }
+    list.innerHTML = html;
+    sel = Math.min(sel, list.querySelectorAll('.op-row').length - 1);
+    paintSel();
+  }
+  function paintSel() {
+    const rowsEl = [...list.querySelectorAll('.op-row')];
+    rowsEl.forEach((r, i) => r.classList.toggle('sel', i === sel));
+    rowsEl[sel]?.scrollIntoView({ block: 'nearest' });
+  }
+  const personOf = (row) => data?.people.find((p) => p.uuid === row?.dataset.uuid);
+  list.addEventListener('click', async (e) => {
+    if (!pop.classList.contains('op-beta')) return;
+    const g = e.target.closest('.op-group');
+    if (g) {
+      const set = new Set(opPrefs().collapsed);
+      set.has(g.dataset.group) ? set.delete(g.dataset.group) : set.add(g.dataset.group);
+      setOpPref('collapsed', [...set]);
+      render();
+      return;
+    }
+    const btn = e.target.closest('[data-act]');
+    const p = personOf(e.target.closest('.op-row'));
+    if (!btn || !p) return;
+    e.stopPropagation();
+    const act = btn.dataset.act;
+    if (act === 'profile') openProfile({ uuid: p.uuid, name: p.name });
+    else if (act === 'dm') { close(); switchView('friends'); openConversation({ kind: 'dm', id: p.uuid, name: p.name }); }
+    else if (act === 'menu') { const r = btn.getBoundingClientRect(); showPeopleMenu(p, r.left, r.bottom + 4); }
+    else if (act === 'follow') {
+      try {
+        await window.nebula.friendsFollow({ uuid: p.uuid, name: p.name });
+        p.following = true;
+        render();
+        showToast('Following', escapeHtml(p.name), 'success');
+      } catch (err) { showToast("Couldn't follow", err.message, 'error'); }
+    }
+  }, true);
+  list.addEventListener('contextmenu', (e) => {
+    if (!pop.classList.contains('op-beta')) return;
+    const p = personOf(e.target.closest('.op-row'));
+    if (!p || p.self) return;
+    e.preventDefault();
+    showPeopleMenu(p, e.clientX, e.clientY);
+  });
+
   async function load() {
     try {
       data = await window.nebula.onlineList();
@@ -6145,20 +7648,25 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     }
   }
 
-  function open() {
-    view = 'all';
-    pop.classList.toggle('op-beta', betaLayoutOn());
+  function open(startView = 'all', from = chip) {
+    view = startView;
+    sel = -1;
+    const beta = betaLayoutOn();
+    pop.classList.toggle('op-beta', beta);
     pop.classList.remove('hidden');
     chip.classList.add('open');
     place();
+    if (beta) { delete list.dataset.painted; popDown(pop, from); }
     search.value = '';
     if (!data) { sub.textContent = 'Loading…'; list.innerHTML = ''; }
+    else if (beta) render();
     load();
     clearInterval(timer);
     timer = setInterval(() => { if (isOpen() && !document.hidden) load(); }, 15000);
+    if (beta) setTimeout(() => { if (isOpen()) search.focus({ preventScroll: true }); }, 60);
   }
   function close() {
-    pop.classList.add('hidden');
+    popClose(pop, () => pop.classList.add('hidden'));
     chip.classList.remove('open');
     clearInterval(timer);
   }
@@ -6166,19 +7674,56 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   chip.addEventListener('click', () => (isOpen() ? close() : open()));
   chip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chip.click(); } });
   document.getElementById('online-pop-close').addEventListener('click', close);
+  document.getElementById('ingame-indicator')?.addEventListener('click', (e) => {
+    if (!betaLayoutOn()) return;
+    e.stopPropagation();
+    if (isOpen() && view === 'ingame') close(); else open('ingame', e.currentTarget);
+  });
   viewsEl?.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-view]');
     if (!b) return;
     view = b.dataset.view;
+    sel = -1;
+    delete list.dataset.painted;
     render();
   });
-  search.addEventListener('input', render);
-  search.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  document.getElementById('op-sort')?.addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const cur = opPrefs().sort;
+    const pick = (s) => () => { setOpPref('sort', s); delete list.dataset.painted; render(); };
+    scMenu(r.right - 180, r.bottom + 6, [
+      ['By role', pick('role'), { check: true, on: cur === 'role' }],
+      ['By name', pick('name'), { check: true, on: cur === 'name' }],
+      ['Playing first', pick('status'), { check: true, on: cur === 'status' }],
+      '-',
+      ['Expand all groups', () => { setOpPref('collapsed', []); render(); }],
+    ], { title: 'Sort players' });
+  });
+  document.getElementById('op-search-x')?.addEventListener('click', () => { search.value = ''; render(); search.focus(); });
+  search.addEventListener('input', () => { sel = -1; render(); });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { if (betaLayoutOn() && search.value) { search.value = ''; render(); } else close(); return; }
+    if (!pop.classList.contains('op-beta')) return;
+    const n = list.querySelectorAll('.op-row').length;
+    if (e.key === 'ArrowDown' && n) { e.preventDefault(); sel = (sel + 1) % n; paintSel(); }
+    else if (e.key === 'ArrowUp' && n) { e.preventDefault(); sel = sel <= 0 ? n - 1 : sel - 1; paintSel(); }
+    else if (e.key === 'Enter' && sel >= 0) {
+      const p = personOf(list.querySelectorAll('.op-row')[sel]);
+      if (p) openProfile({ uuid: p.uuid, name: p.name });
+    } else if (e.key === 'Tab' && viewsEl && !e.shiftKey && !search.value) {
+      e.preventDefault();
+      const views = [...viewsEl.querySelectorAll('button[data-view]')];
+      const i = views.findIndex((b) => b.dataset.view === view);
+      views[(i + 1) % views.length].click();
+    }
+  });
+  list.addEventListener('error', (e) => { if (e.target.matches?.('.op-face')) e.target.style.visibility = 'hidden'; }, true);
   document.addEventListener('mousedown', (e) => {
-    if (!isOpen() || pop.contains(e.target) || chip.contains(e.target) || e.target.closest('.people-menu, .confirm-modal, .modal-scrim')) return;
+    if (!isOpen() || pop.contains(e.target) || chip.contains(e.target) || e.target.closest('.people-menu, .confirm-modal, .modal-scrim, .sc-menu')) return;
+    if (betaLayoutOn() && e.target.closest('#ingame-indicator')) return;
     close();
   });
-  window.addEventListener('resize', () => { if (isOpen()) place(); });
+  window.addEventListener('resize', () => { if (isOpen()) { place(); moveInk(); } });
 })();
 
 window.nebula.onStarted(({ launchId, instanceName, accountName, instant }) => {
@@ -7043,6 +8588,14 @@ function paletteActions() {
   }
   for (const a of ACCENTS) {
     acts.push({ icon: '●', label: `Accent: ${a.name}`, run: () => { theme.accent = a.id; saveTheme(); applyTheme(); renderCustomize(); } });
+  }
+  if (betaLayoutOn()) {
+    for (const c of readCommunities()) {
+      for (const ch of c.channels || []) {
+        const u = ch.kind === 'text' ? csUnread(c, ch) : { n: 0 };
+        acts.push({ icon: ch.kind === 'voice' ? '🔊' : '#', label: `${ch.name}`, hint: `${c.name}${u.n ? ` · ${u.n} new` : ''}`, run: () => openCommunityStage(c.id, ch.id) });
+      }
+    }
   }
   return acts;
 }
@@ -9766,9 +11319,272 @@ function showPeopleMenu(person, x, y) {
       : 'People with live chat open';
   }
 
+  // ---- beta live chat ----
+  const LC_PREFS_KEY = 'sc.lc.prefs';
+  const LC_SEEN_KEY = 'sc.lc.seenAt';
+  const lcPrefs = () => {
+    try { return { compact: false, times: true, ping: true, people: true, ...JSON.parse(localStorage.getItem(LC_PREFS_KEY) || '{}') }; } catch { return { compact: false, times: true, ping: true, people: true }; }
+  };
+  const setLcPref = (k, v) => {
+    try { localStorage.setItem(LC_PREFS_KEY, JSON.stringify({ ...lcPrefs(), [k]: v })); } catch { /* full */ }
+    render();
+  };
+  const searchBar = document.getElementById('lc-searchbar');
+  const searchIn = document.getElementById('lc-search');
+  const searchN = document.getElementById('lc-search-n');
+  const jumpBtn = document.getElementById('lc-jump');
+  const jumpLabel = document.getElementById('lc-jump-label');
+  const replyBar = document.getElementById('lc-replybar');
+  const peopleEl = document.getElementById('lc-people');
+  const countEl = document.getElementById('lc-count');
+  let replyTo = null;
+  let lcSeenIds = new Set();
+  let lcUnreadFrom = 0;
+  let lcBelow = 0;
+  let lcMentions = 0;
+  const sentHistory = [];
+  let historyAt = -1;
+  const ROLE_SVG = {
+    owner: '<path d="M3 7l4.5 3.5L12 4l4.5 6.5L21 7l-2 11H5L3 7zm2.3 13h13.4v2H5.3v-2z"/>',
+    admin: '<path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/>',
+    verified: '<path d="M23 12l-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12zm-12.91 4.72-3.8-3.81 1.48-1.48 2.32 2.33 5.85-5.87 1.48 1.48-7.33 7.35z"/>',
+    'solar+': '<path d="M12 2l2.6 6.9L22 9.3l-5.7 4.6 1.9 7.1L12 17l-6.2 4 1.9-7.1L2 9.3l7.4-.4z"/>',
+  };
+  const ICON = {
+    reply: '<svg viewBox="0 0 24 24"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>',
+    at: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 5 18.66l-1-1.73A8 8 0 1 1 20 12v1.5a1.5 1.5 0 0 1-3 0V12a5 5 0 1 0-1.46 3.53A3.5 3.5 0 0 0 22 13.5V12A10 10 0 0 0 12 2zm0 13a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>',
+    copy: '<svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>',
+    del: '<svg viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
+    more: '<svg viewBox="0 0 24 24"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm12 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>',
+  };
+  const roleBadge = (role) => {
+    const k = String(role || '').toLowerCase();
+    return ROLE_SVG[k] ? `<svg class="lc-badge" data-role="${k}" viewBox="0 0 24 24" aria-label="${escapeHtml(role)}"><title>${escapeHtml(role)}</title>${ROLE_SVG[k]}</svg>` : '';
+  };
+  const chatPeople = () => {
+    const seen = new Map();
+    for (const p of state.people || []) if (p?.name) seen.set(p.name.toLowerCase(), { uuid: p.uuid, name: p.name });
+    for (const m of state.messages || []) if (m?.name && !seen.has(m.name.toLowerCase())) seen.set(m.name.toLowerCase(), { uuid: m.from, name: m.name });
+    return [...seen.values()].filter((p) => p.name !== myName());
+  };
+  scMentionAuto(input, chatPeople);
+  const setReply = (m) => {
+    replyTo = m ? { name: m.name || 'Player', text: scParseReply(m.text)?.body || m.text } : null;
+    replyBar.classList.toggle('hidden', !replyTo);
+    if (replyTo) {
+      document.getElementById('lc-reply-name').textContent = replyTo.name;
+      document.getElementById('lc-reply-quote').textContent = replyTo.text.slice(0, 80);
+      input.focus();
+    }
+  };
+  document.getElementById('lc-reply-x').addEventListener('click', () => setReply(null));
+  const mention = (name) => { scInsert(input, `${input.value && !/\s$/.test(input.value) ? ' ' : ''}@${name} `); };
+  const copyText = async (text) => {
+    try { await navigator.clipboard.writeText(text); showToast('Copied', 'Message copied to your clipboard.', 'success'); }
+    catch { showToast("Couldn't copy", 'Clipboard is not available.', 'error'); }
+  };
+  const msgMenu = (m, x, y) => {
+    const mine = !!state.selfId && m.from === state.selfId;
+    const body = scParseReply(m.text)?.body || m.text;
+    scMenu(x, y, [
+      ['Reply', () => setReply(m), { hint: 'R' }],
+      ...(mine ? [] : [[`Mention @${m.name || 'Player'}`, () => mention(m.name || 'Player')]]),
+      ['Copy text', () => copyText(body)],
+      '-',
+      ...(mine ? [['Delete for everyone', () => window.nebula.chatDelete({ id: m.id }).catch((err) => showToast("Couldn't delete", err.message, 'error')), { danger: true }]]
+        : [['View profile', () => openProfile({ uuid: m.from, name: m.name })],
+          ['Player options…', () => showPeopleMenu({ uuid: m.from, name: m.name || 'Player' }, x, y)],
+          ['Report', () => openReport({ uuid: m.from, name: m.name, context: { where: 'Live chat', text: m.text, at: m.at } }), { danger: true }]]),
+    ], { title: m.name || 'Player' });
+  };
+  const atBottom = () => list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  const paintJump = () => {
+    jumpBtn.classList.toggle('hidden', lcBelow <= 0 || atBottom());
+    jumpLabel.textContent = lcBelow === 1 ? '1 new message' : `${lcBelow} new messages`;
+  };
+  list.addEventListener('scroll', () => { if (atBottom()) { lcBelow = 0; } paintJump(); });
+  jumpBtn.addEventListener('click', () => { list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' }); lcBelow = 0; paintJump(); });
+
+  function renderPeople() {
+    const prefs = lcPrefs();
+    panel.classList.toggle('lc-has-people', prefs.people);
+    const people = Array.isArray(state.people) ? state.people : [];
+    const extra = Math.max(0, (state.viewers || 0) - people.length);
+    peopleEl.innerHTML = `<div class="lc-people-head">Here now <em>${Math.max(people.length, state.viewers || 0)}</em></div>${
+      people.map((p) => `<div class="lc-person" data-uuid="${escapeHtml(p.uuid)}" data-name="${escapeHtml(p.name)}">
+        <img src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span></div>`).join('')
+    }${extra ? `<div class="lc-people-more">and ${extra} more</div>` : ''}`;
+  }
+  peopleEl.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.lc-person');
+    if (!row) return;
+    e.preventDefault();
+    showPeopleMenu({ uuid: row.dataset.uuid, name: row.dataset.name }, e.clientX, e.clientY);
+  });
+
+  function renderBeta(ready) {
+    const prefs = lcPrefs();
+    panel.classList.toggle('lc-compact', prefs.compact);
+    panel.classList.toggle('lc-times-hover', !prefs.times);
+    sub.textContent = !state.signedIn ? 'Sign in to chat'
+      : !state.connected ? 'Connecting…'
+      : state.available === false ? 'Chat server is offline'
+      : `${Math.max(1, state.viewers || 1)} here · messages last 1 hour`;
+    renderPeople();
+    const q = searchBar.classList.contains('hidden') ? '' : searchIn.value.trim().toLowerCase();
+    const wasBottom = atBottom() || !render.scrolled;
+    const prevTop = list.scrollTop;
+    const msgs = state.messages.filter((m) => !q || `${m.name} ${m.text}`.toLowerCase().includes(q));
+    if (q) searchN.textContent = msgs.length ? `${msgs.length} found` : 'No matches';
+    if (!state.messages.length || !msgs.length) {
+      list.innerHTML = `<div class="lc-empty"><div class="lc-empty-ic">${ICON.reply}</div><b>${
+        q ? 'Nothing matches' : ready ? 'It\'s quiet in here' : 'Live chat is offline'}</b><span>${
+        q ? 'Try another word or name.' : ready ? 'Say hi. Everyone on SolarClient can see live chat.' : 'Live chat opens once you\'re signed in and online.'}</span></div>`;
+      lcSeenIds = new Set(state.messages.map((m) => m.id));
+      return;
+    }
+    const me = myName();
+    let html = '';
+    let prev = null;
+    let newCount = 0;
+    let dividerDone = false;
+    for (const m of msgs) {
+      const mine = !!state.selfId && m.from === state.selfId;
+      const isNew = render.scrolled && !lcSeenIds.has(m.id);
+      if (isNew && !mine) newCount++;
+      if (!dividerDone && lcUnreadFrom && m.at > lcUnreadFrom && !mine && prev) {
+        html += '<div class="lc-divider"><span>New</span></div>';
+        dividerDone = true;
+        prev = null;
+      }
+      const cont = !q && prev && prev.from === m.from && m.at - prev.at < 5 * 60 * 1000;
+      const reply = scParseReply(m.text);
+      const body = reply ? reply.body : m.text;
+      const mentioned = !mine && scMentionsMe(body, me);
+      const time = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const role = String(m.role || '').toLowerCase();
+      const big = SC_EMOJI_ONLY.test(body.trim());
+      html += `<div class="lc-msg ${mine ? 'mine' : ''} ${cont ? 'cont' : ''} ${mentioned ? 'mention' : ''} ${isNew ? 'is-new' : ''}" data-id="${escapeHtml(m.id)}" data-role="${escapeHtml(role)}">
+        ${cont ? `<span class="lc-gutter" title="${escapeHtml(new Date(m.at).toLocaleString())}">${escapeHtml(time)}</span>`
+          : `<img class="lc-face" src="${frAvatar(m.from)}" alt="" ${personAttr(m.from, m.name)}>`}
+        <div class="lc-body">
+          ${reply ? `<div class="lc-reply" data-jump="${escapeHtml(reply.to)}">${ICON.reply}<b>@${escapeHtml(reply.to)}</b><span>${escapeHtml(reply.quote)}</span></div>` : ''}
+          ${cont ? '' : `<div class="lc-meta"><span class="lc-name" ${personAttr(m.from, m.name)}>${escapeHtml(m.name || 'Player')}</span>${roleBadge(m.role)}<time class="lc-time" title="${escapeHtml(new Date(m.at).toLocaleString())}">${escapeHtml(time)}</time></div>`}
+          <div class="lc-text${big ? ' big' : ''}">${scRich(body, { me })}</div>
+        </div>
+        <div class="lc-tools">
+          <button type="button" data-t="reply" title="Reply">${ICON.reply}</button>
+          ${mine ? '' : `<button type="button" data-t="at" title="Mention">${ICON.at}</button>`}
+          <button type="button" data-t="copy" title="Copy text">${ICON.copy}</button>
+          ${mine ? `<button type="button" data-t="del" class="danger" title="Delete for everyone">${ICON.del}</button>`
+            : reportFlag(m.from, m.name, { where: 'Live chat', text: m.text, at: m.at })}
+          <button type="button" data-t="more" title="More">${ICON.more}</button>
+        </div>
+      </div>`;
+      prev = m;
+    }
+    if (lastBlocked && Date.now() - lastBlocked.at < 60000) {
+      html += `<div class="lc-blocked"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg><span>${escapeHtml(lastBlocked.reason)}</span></div>`;
+    }
+    list.innerHTML = html;
+    lcSeenIds = new Set(state.messages.map((m) => m.id));
+    if (wasBottom) {
+      list.scrollTop = list.scrollHeight;
+      lcBelow = 0;
+      render.scrolled = true;
+    } else {
+      list.scrollTop = prevTop;
+      lcBelow += newCount;
+    }
+    paintJump();
+  }
+
+  list.addEventListener('click', (e) => {
+    if (!betaLayoutOn()) return;
+    const row = e.target.closest('.lc-msg');
+    const m = row && state.messages.find((x) => x.id === row.dataset.id);
+    const jump = e.target.closest('.lc-reply');
+    if (jump) {
+      const to = jump.dataset.jump.toLowerCase();
+      const idx = state.messages.indexOf(m);
+      const target = state.messages.slice(0, idx).reverse().find((x) => (x.name || '').toLowerCase() === to);
+      const el = target && list.querySelector(`.lc-msg[data-id="${CSS.escape(target.id)}"]`);
+      if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+      return;
+    }
+    const t = e.target.closest('.lc-tools button[data-t]');
+    if (!t || !m) return;
+    e.stopPropagation();
+    const act = t.dataset.t;
+    if (act === 'reply') setReply(m);
+    else if (act === 'at') mention(m.name || 'Player');
+    else if (act === 'copy') copyText(scParseReply(m.text)?.body || m.text);
+    else if (act === 'del') window.nebula.chatDelete({ id: m.id }).catch((err) => showToast("Couldn't delete", err.message, 'error'));
+    else if (act === 'more') { const r = scRect(t); msgMenu(m, r.left, r.bottom + 4); }
+  });
+  list.addEventListener('contextmenu', (e) => {
+    if (!betaLayoutOn()) return;
+    const row = e.target.closest('.lc-msg');
+    const m = row && state.messages.find((x) => x.id === row.dataset.id);
+    if (!m) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    msgMenu(m, e.clientX, e.clientY);
+  }, true);
+
+  const openSearch = (on) => {
+    searchBar.classList.toggle('hidden', !on);
+    if (on) { searchIn.focus(); searchIn.select(); } else { searchIn.value = ''; searchN.textContent = ''; }
+    render();
+  };
+  document.getElementById('lc-search-btn').addEventListener('click', () => openSearch(searchBar.classList.contains('hidden')));
+  document.getElementById('lc-search-x').addEventListener('click', () => openSearch(false));
+  searchIn.addEventListener('input', () => render());
+  searchIn.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); openSearch(false); input.focus(); } });
+  panel.addEventListener('keydown', (e) => {
+    if (!betaLayoutOn()) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openSearch(true); }
+  });
+  document.getElementById('lc-settings-btn').addEventListener('click', (e) => {
+    const r = scRect(e.currentTarget);
+    const p = lcPrefs();
+    scMenu(r.right - 220, r.bottom + 6, [
+      ['Compact messages', () => setLcPref('compact', !p.compact), { check: true, on: p.compact }],
+      ['Always show times', () => setLcPref('times', !p.times), { check: true, on: p.times }],
+      ['Show who\'s here', () => setLcPref('people', !p.people), { check: true, on: p.people }],
+      ['Sound when mentioned', () => setLcPref('ping', !p.ping), { check: true, on: p.ping }],
+      '-',
+      ['Reset size and position', () => head.dispatchEvent(new MouseEvent('dblclick'))],
+      ['Chat rules', () => document.querySelector('#live-chat [data-open-rules]')?.click()],
+    ], { title: 'Live chat' });
+  });
+  document.getElementById('lc-emoji-btn').addEventListener('click', (e) => {
+    if (input.disabled) return;
+    scEmojiPicker(e.currentTarget, (em) => scInsert(input, em));
+  });
+  input.addEventListener('input', () => {
+    if (!betaLayoutOn()) return;
+    const n = input.value.length;
+    countEl.textContent = n >= 240 ? `${300 - n}` : '';
+    countEl.classList.toggle('warn', n >= 280);
+  });
+  viewersEl.addEventListener('click', () => {
+    if (!betaLayoutOn()) return;
+    if (panel.classList.contains('sc-wide')) setLcPref('people', !lcPrefs().people);
+    else panel.classList.toggle('lc-people-peek');
+  });
+  list.addEventListener('mousedown', () => panel.classList.remove('lc-people-peek'));
+
   function render() {
     const ready = state.connected && state.signedIn && state.available !== false;
     input.disabled = !ready; sendBtn.disabled = !ready;
+    if (betaLayoutOn()) {
+      const hasViewers = ready && typeof state.viewers === 'number';
+      viewersEl.classList.toggle('hidden', !hasViewers);
+      if (hasViewers) renderViewers();
+      renderBeta(ready);
+      return;
+    }
     sub.textContent = !state.signedIn ? 'Sign in to chat'
       : !state.connected ? 'Connecting…'
       : state.available === false ? 'Chat server is offline' : 'Everyone on SolarClient';
@@ -9818,12 +11634,16 @@ function showPeopleMenu(person, x, y) {
   }
   let lastBlocked = null;
 
+  scPanelScale(panel, 400);
   function open() {
     panel.classList.remove('hidden');
     restoreSize();
     restorePos();
     popDown(panel, chip);
     chip.classList.add('open');
+    lcUnreadFrom = Number(localStorage.getItem(LC_SEEN_KEY) || 0);
+    lcMentions = 0;
+    badge?.classList.add('hidden');
     render.scrolled = false;
     render();
     if (!input.disabled) input.focus();
@@ -9835,17 +11655,29 @@ function showPeopleMenu(person, x, y) {
     }).catch(() => {});
   }
   function close() {
-    panel.classList.add('hidden');
+    try { localStorage.setItem(LC_SEEN_KEY, String(Date.now())); } catch { /* full */ }
     chip.classList.remove('open');
     window.nebula.chatPresence?.(false).catch(() => {});
+    popClose(panel, () => panel.classList.add('hidden'));
   }
 
   async function send() {
-    const text = input.value.trim();
-    if (!text) return;
+    const typed = input.value.trim();
+    if (!typed) return;
+    let text = typed;
+    if (betaLayoutOn()) {
+      text = scShortcodes(typed);
+      if (replyTo) text = scReplyText(replyTo.name, replyTo.text, text, 300);
+      sentHistory.unshift(typed);
+      sentHistory.length = Math.min(sentHistory.length, 20);
+      historyAt = -1;
+    }
     input.value = '';
+    input.dispatchEvent(new Event('input'));
+    const hadReply = replyTo;
+    setReply(null);
     try { await window.nebula.chatSend({ text }); }
-    catch (err) { input.value = text; showToast("Couldn't send", err.message, 'error'); }
+    catch (err) { input.value = typed; if (hadReply) setReply({ name: hadReply.name, text: hadReply.text }); showToast("Couldn't send", err.message, 'error'); }
   }
 
   chip.addEventListener('click', () => (isOpen() ? close() : open()));
@@ -9853,15 +11685,43 @@ function showPeopleMenu(person, x, y) {
   sendBtn.addEventListener('click', send);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') send();
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      if (betaLayoutOn() && replyTo) { setReply(null); return; }
+      close();
+    }
+    if (!betaLayoutOn()) return;
+    if (e.key === 'ArrowUp' && (!input.value || historyAt >= 0) && sentHistory.length) {
+      e.preventDefault();
+      historyAt = Math.min(sentHistory.length - 1, historyAt + 1);
+      input.value = sentHistory[historyAt];
+    } else if (e.key === 'ArrowDown' && historyAt >= 0) {
+      e.preventDefault();
+      historyAt -= 1;
+      input.value = historyAt >= 0 ? sentHistory[historyAt] : '';
+    }
   });
 
   window.nebula.onChatGlobal?.((g) => {
+    const before = new Set((state.messages || []).map((m) => m.id));
     state = g;
     if (g.blocked || g.muted) {
       lastBlocked = { reason: g.error || "Message not sent. It breaks the chat rules.", at: Date.now() };
       showToast(g.muted ? 'Muted in live chat' : 'Message not sent', escapeHtml(g.muted ? g.error : 'It breaks the SolarClient live chat rules.'), 'error');
     } else if (g.error) showToast('Live chat', escapeHtml(g.error), 'error');
+    if (betaLayoutOn() && before.size) {
+      const pings = (g.messages || []).filter((m) => !before.has(m.id) && m.from !== g.selfId
+        && scMentionsMe(scParseReply(m.text)?.body || m.text));
+      if (pings.length) {
+        if (lcPrefs().ping && (!isOpen() || document.hidden)) scPing();
+        if (!isOpen()) {
+          lcMentions += pings.length;
+          badge.textContent = lcMentions > 9 ? '9+' : `@${lcMentions}`;
+          badge.classList.remove('hidden');
+          const m = pings[pings.length - 1];
+          showToast(`${m.name || 'Someone'} mentioned you`, escapeHtml((scParseReply(m.text)?.body || m.text).slice(0, 120)), 'info');
+        }
+      }
+    }
     if (isOpen()) render();
   });
   window.nebula.chatState?.().then((g) => { if (g) { state = g; if (isOpen()) render(); } }).catch(() => {});
@@ -10004,7 +11864,8 @@ function showPeopleMenu(person, x, y) {
   }
 
   function closeMenu() {
-    updatesMenu?.classList.add('hidden');
+    if (!updatesMenu) return;
+    popClose(updatesMenu, () => updatesMenu.classList.add('hidden'));
     document.getElementById('updates-menu-wrap')?.classList.remove('open');
     document.body.classList.remove('updates-menu-open');
   }
@@ -10019,7 +11880,7 @@ function showPeopleMenu(person, x, y) {
     document.getElementById('updates-menu-wrap')?.classList.add('open');
     document.body.classList.add('updates-menu-open');
     // Next frame so layout has size before measuring
-    requestAnimationFrame(placeMenu);
+    requestAnimationFrame(() => { placeMenu(); popDown(updatesMenu, updateChip); });
     // Never show a stale "up to date" — re-check the feed every time it opens.
     if (!lastState?.downloading && !lastState?.installing && !lastState?.checking) {
       if (stableMeta && !lastState?.stableOffer) stableMeta.textContent = 'Checking for updates…';
