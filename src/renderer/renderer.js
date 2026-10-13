@@ -1712,9 +1712,9 @@ function sendVoiceState() {
   window.nebula.voiceState?.({ muted: s.muted, deafened: s.deafened })?.catch?.(() => {});
 }
 
-function micConstraints(prefs) {
+function micConstraints(prefs, { echoCancel = true } = {}) {
   const audio = {
-    echoCancellation: true,
+    echoCancellation: echoCancel,
     noiseSuppression: prefs.noiseCancel,
     autoGainControl: true,
     channelCount: 1,
@@ -1723,14 +1723,14 @@ function micConstraints(prefs) {
   return { audio };
 }
 
-async function openMic(prefs) {
+async function openMic(prefs, opts) {
   try {
-    return await navigator.mediaDevices.getUserMedia(micConstraints(prefs));
+    return await navigator.mediaDevices.getUserMedia(micConstraints(prefs, opts));
   } catch (err) {
     if (!prefs.deviceId) throw err;
     // The saved microphone is unplugged or gone; use the system default instead.
     saveVoicePrefs({ deviceId: '' });
-    return navigator.mediaDevices.getUserMedia(micConstraints({ ...prefs, deviceId: '' }));
+    return navigator.mediaDevices.getUserMedia(micConstraints({ ...prefs, deviceId: '' }, opts));
   }
 }
 
@@ -1962,7 +1962,9 @@ let repaintVoiceControls = () => {};
 
 async function wireMicTest(t) {
   const prefs = voicePrefs();
-  const stream = await openMic(prefs);
+  // The test plays your own voice back, and Chromium's echo canceller treats that playback
+  // as echo and keeps cancelling your voice out of the mic, so the test chops in and out.
+  const stream = await openMic(prefs, { echoCancel: false });
   if (t.closed) { stream.getTracks().forEach((tr) => tr.stop()); return; }
   try { t.src?.disconnect(); } catch { /* ok */ }
   try { t.stream?.getTracks().forEach((tr) => tr.stop()); } catch { /* ok */ }
