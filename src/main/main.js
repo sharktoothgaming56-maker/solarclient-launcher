@@ -4,7 +4,7 @@
 if (process.env.SOLARCLIENT_INSECURE_TLS === '1') {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 }
-const { app, BrowserWindow, ipcMain, Menu, dialog, net } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, net, powerMonitor } = require('electron');
 
 // Node's fetch trusts only its bundled CA list, so it fails outright on PCs
 // whose antivirus or network inspects HTTPS. Chromium's stack uses the
@@ -170,6 +170,10 @@ if (process.env.SOLARCLIENT_GPU_TWEAKS === '1') {
 // Soft recovery: if the GPU process still dies, prefer software compositing
 // on the next launch rather than a permanent black window.
 app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+
+// Calls and screen share: show received video as soon as it arrives. Chromium
+// otherwise holds screen-share frames 150-400ms to smooth out their uneven sizes.
+app.commandLine.appendSwitch('force-fieldtrials', 'WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:60/');
 
 // AppUserModelID, and why it is conditional.
 if (process.platform === 'win32' && !process.defaultApp) {
@@ -897,8 +901,12 @@ app.whenReady().then(() => {
 
       f.connect();
       checkDeviceBan();
+      // Sleep and network changes kill sockets silently; reconnect the moment we're back.
+      const wake = () => { try { friends?.wake(); } catch { /* not started */ } };
+      powerMonitor.on('resume', wake);
+      powerMonitor.on('unlock-screen', wake);
     } catch (err) { console.warn('[friends] startup:', err.message); }
-  }, 100);
+  }, 0);
 
   afterFirstFrame(async () => {
     try {
@@ -1640,6 +1648,7 @@ const friendsHandlers = {
   'voice:state': (_e, { muted, deafened } = {}) => ensureFriends().sendVoice({ t: 'voice_state', muted: muted === true, deafened: deafened === true }),
   'friends:setSetting': (_e, { key, value }) => ensureFriends().setSetting(key, value),
   'friends:reconnect': () => ensureFriends().connect(),
+  'friends:wake': () => { ensureFriends().wake(); },
   'chat:state': () => ensureFriends().globalState(),
   'chat:ensure': () => ensureFriends().ensureConnected(),
   'chat:send': (_e, { text }) => ensureFriends().sendGlobal(text),

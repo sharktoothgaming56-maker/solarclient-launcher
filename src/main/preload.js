@@ -103,6 +103,7 @@ const api = {
   onServersProgress: (cb) => ipcRenderer.on('servers:progress', (_e, p) => cb(p)),
   friendsSetSetting: (d) => ipcRenderer.invoke('friends:setSetting', d),
   friendsReconnect: () => ipcRenderer.invoke('friends:reconnect'),
+  friendsWake: () => ipcRenderer.invoke('friends:wake'),
   onFriendsChanged: (cb) => ipcRenderer.on('friends:changed', (_e, p) => cb(p)),
   onFriendsNotify: (cb) => ipcRenderer.on('friends:notify', (_e, p) => cb(p)),
   onFriendsConnection: (cb) => ipcRenderer.on('friends:connection', (_e, p) => cb(p)),

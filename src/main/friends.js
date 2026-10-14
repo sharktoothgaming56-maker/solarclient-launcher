@@ -61,68 +61,104 @@ class LocalTransport extends EventEmitter {
  * dropped socket must not mean "friends stop working until restart".
  */
 class SocketTransport extends EventEmitter {
-  constructor(url, tokenProvider) {
+  /**
+   * `quick` (optional) keeps the server's sign-in ticket: { get(), set(token, device, uuid), drop() }.
+   * With a ticket the handshake skips Mojang, so reconnects take one round trip.
+   */
+  constructor(url, tokenProvider, quick = null) {
     super();
     this.url = url;
     this.tokenProvider = tokenProvider;
+    this.quick = quick;
     this.ws = null;
     this.connected = false;
     this.retry = 0;
     this.closedByUs = false;
+    this.alive = 0;
   }
   get kind() { return 'socket'; }
 
   async connect() {
     this.closedByUs = false;
     this.connecting = true;
+    clearTimeout(this._retryTimer);
     let WebSocketImpl;
     try {
-      WebSocketImpl = global.WebSocket || require('ws');
+      WebSocketImpl = require('ws');
     } catch {
+      WebSocketImpl = global.WebSocket;
+    }
+    if (!WebSocketImpl) {
       this.connecting = false;
       this.emit('error', new Error('WebSocket support is unavailable.'));
       return false;
     }
+    let ws;
     try {
-      this.ws = new WebSocketImpl(this.url);
+      ws = new WebSocketImpl(this.url);
     } catch (err) {
       this.connecting = false;
       this.emit('error', err);
       this.scheduleReconnect();
       return false;
     }
+    this.ws = ws;
     // A half-open attempt otherwise sits there until the OS gives up.
-    const ws = this.ws;
     clearTimeout(this._openTimer);
     this._openTimer = setTimeout(() => {
-      if (this.ws === ws && !this.connected) { try { ws.close(); } catch { /* gone */ } }
-    }, 12000);
+      if (this.ws === ws && !this.connected) this.drop(ws);
+    }, 8000);
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      if (this.ws !== ws) return;
       // Not "connected" yet: the server issues a challenge and we must
       // prove we own the Minecraft account before anything else happens.
-      this.retry = 0;
+      this.alive = Date.now();
       this.emit('socket-open');
     };
-    this.ws.onmessage = async (ev) => {
+    ws.onmessage = async (ev) => {
+      // A replaced socket can still deliver a late frame ("signed in somewhere
+      // else" from the server tidying up the old session); it must not touch the new one.
+      if (this.ws !== ws) return;
+      this.alive = Date.now();
       let msg;
       try { msg = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString()); }
       catch { return; }
 
       // ---- authentication handshake ----
       if (msg.t === 'challenge') {
+        // The server is reachable; signing in (a Microsoft refresh can be slow) is on its own 15s clock.
+        clearTimeout(this._openTimer);
+        const ticket = !this._noQuick && this.quick?.get();
+        if (ticket) {
+          this._usedQuick = true;
+          this._device = ticket.device;
+          this.sendRaw({ t: 'auth', resume: ticket.token, device: ticket.device });
+          return;
+        }
+        this._usedQuick = false;
         try {
           const proof = await this.tokenProvider(msg.serverId);
+          if (this.ws !== ws) return;
+          this._device = proof?.device;
           this.sendRaw({ t: 'auth', ...proof });
         } catch (err) {
+          if (this.ws !== ws) return;
           this.emit('error', new Error(`Could not verify your Minecraft account: ${err.message}`));
-          this.close();
+          // Signed out: nothing to retry. Anything else (Mojang or the network
+          // having a moment) gets retried like a dropped connection.
+          if (/not signed in/i.test(err.message || '')) this.close();
+          else this.drop(ws);
         }
         return;
       }
       if (msg.t === 'auth_ok') {
         this.connected = true;
         this.connecting = false;
+        this.retry = 0;
+        this._noQuick = false;
+        if (typeof msg.resume === 'string' && this._device) this.quick?.set(msg.resume, this._device, msg.uuid);
+        this.watch(ws);
         // Carry our badge tier through with the open event so the launcher
         // knows what we are (and whether we may run admin commands).
         this.emit('open', { role: msg.role || 'member', isOwner: !!msg.isOwner, isMod: !!msg.isMod });
@@ -136,27 +172,91 @@ class SocketTransport extends EventEmitter {
       }
       if (msg.t === 'auth_failed') {
         this.connecting = false;
+        if (this._usedQuick) {
+          // Expired or unknown ticket (or an older server): sign in the full way, right now.
+          this.quick?.drop();
+          this._noQuick = true;
+          this.retry = 0;
+          this.drop(ws, 0);
+          return;
+        }
         if (!this.closedByUs) this.emit('error', new Error(msg.reason || 'The server rejected your account.'));
-        this.closedByUs = true;   // no point retrying a rejected identity
-        try { this.ws.close(); } catch { /* gone */ }
+        // Another launcher took over this account: don't fight it for the session.
+        if (/somewhere else/i.test(msg.reason || '')) {
+          this.closedByUs = true;
+          try { ws.close(); } catch { /* gone */ }
+        } else {
+          this.retry = Math.max(this.retry, 4);
+          this.drop(ws);
+        }
         return;
       }
       this.emit('message', msg);
     };
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      if (this.ws !== ws) return;
+      clearInterval(this._watch);
       this.connected = false;
       this.connecting = false;
       this.emit('close');
-      if (!this.closedByUs) this.scheduleReconnect();
+      if (!this.closedByUs) this.scheduleReconnect(this._nextDelay);
+      this._nextDelay = undefined;
     };
-    this.ws.onerror = (err) => this.emit('error', err);
+    ws.onerror = (err) => { if (this.ws === ws) this.emit('error', err); };
     return true;
   }
 
-  scheduleReconnect() {
-    // Exponential backoff, capped, so a server outage doesn't turn every
-    // client into a retry storm the moment it comes back.
-    const delay = Math.min(30000, 1000 * Math.pow(2, this.retry++));
+  /**
+   * Ping the server every few seconds. A socket can die without a close event
+   * (sleep, Wi-Fi switch, router reboot) and would otherwise look connected
+   * until the OS gives up minutes later.
+   */
+  watch(ws) {
+    clearInterval(this._watch);
+    if (typeof ws.ping !== 'function') return;
+    ws.on?.('pong', () => { if (this.ws === ws) this.alive = Date.now(); });
+    this._watch = setInterval(() => {
+      if (this.ws !== ws) { clearInterval(this._watch); return; }
+      if (Date.now() - this.alive > 15000) { this.drop(ws, 0); return; }
+      try { ws.ping(); } catch { /* close follows */ }
+    }, 5000);
+  }
+
+  /** Throw a socket away and reconnect (after `delay` ms, or the normal backoff). */
+  drop(ws = this.ws, delay) {
+    if (!ws || this.ws !== ws) return;
+    this._nextDelay = delay;
+    try {
+      if (typeof ws.terminate === 'function') ws.terminate();
+      else ws.close();
+    } catch { /* gone */ }
+  }
+
+  /** The PC woke up or got its network back: make sure we're really connected, now. */
+  wake() {
+    if (this.closedByUs) return;
+    const ws = this.ws;
+    if (this.connected && ws && typeof ws.ping === 'function') {
+      const since = Date.now();
+      try { ws.ping(); } catch { /* close follows */ }
+      setTimeout(() => { if (this.ws === ws && this.connected && this.alive < since) this.drop(ws, 0); }, 3000);
+      return;
+    }
+    if (!this.connecting) {
+      this.retry = 0;
+      this.connect();
+    }
+  }
+
+  scheduleReconnect(delay) {
+    // Quick first tries so a blip is invisible, then backing off (with jitter)
+    // so a server outage doesn't turn every client into a retry storm.
+    if (delay === undefined) {
+      const steps = [250, 1000, 2000, 4000, 8000];
+      const base = steps[this.retry] ?? 15000;
+      delay = Math.round(base * (1 + Math.random() * 0.3));
+    }
+    this.retry++;
     clearTimeout(this._retryTimer);
     this._retryTimer = setTimeout(() => this.connect(), delay);
   }
@@ -176,6 +276,7 @@ class SocketTransport extends EventEmitter {
     this.closedByUs = true;
     clearTimeout(this._retryTimer);
     clearTimeout(this._openTimer);
+    clearInterval(this._watch);
     try { this.ws?.close(); } catch { /* already gone */ }
     this.connected = false;
   }
@@ -501,16 +602,19 @@ class Friends extends EventEmitter {
     const s = this.read();
     if (s.settings.serverUrlOverride) return s.settings.serverUrlOverride;
 
-    // Connect to the address that worked last time straight away and check
-    // discovery in the background — waiting on it first added seconds to
-    // every connect. If the backend moved, reconnect to the new address.
-    if (s.lastKnownUrl) {
+    // Connect to the address that worked last time (or the built-in one on a
+    // first start) straight away and check discovery in the background —
+    // waiting on it first added seconds to every connect. If the backend
+    // moved, reconnect to the new address. Quick reconnects don't re-ask.
+    const known = s.lastKnownUrl || FRIENDS_WS_URL;
+    if (!this._discoveredAt || Date.now() - this._discoveredAt > 5 * 60 * 1000) {
+      this._discoveredAt = Date.now();
       this.discover().then((url) => {
-        if (url && url !== s.lastKnownUrl) this.connect();
+        if (url && url !== known) this.connect();
+        else if (!url) this._discoveredAt = 0;
       });
-      return s.lastKnownUrl;
     }
-    return (await this.discover()) || FRIENDS_WS_URL;
+    return known;
   }
 
   async discover() {
@@ -572,8 +676,10 @@ class Friends extends EventEmitter {
     // provider POSTed `serverId: null` to Mojang, which answers
     // "Invalid serverId: null" with a 403 — the account and the token were
     // never the problem.
-    this.transport = new SocketTransport(serverUrl, (serverId) => this.authProvider?.(serverId));
+    this.transport = new SocketTransport(serverUrl, (serverId) => this.authProvider?.(serverId), this.quickTicket());
     this.transport.on('open', (info) => {
+      clearTimeout(this._darkTimer);
+      this._darkTimer = null;
       this.myRole = info?.role || 'member';
       this.isOwner = !!info?.isOwner;
       this.isMod = !!info?.isMod;
@@ -598,15 +704,44 @@ class Friends extends EventEmitter {
       for (const done of [...this._modWaiters.values()]) done({ ok: false, reason: 'Disconnected from SolarClient online.' });
       this.globalViewers = null;
       this.globalPeople = [];
-      // Everyone goes dark rather than lingering as falsely "online".
-      this.peers.clear();
-      this.emit('connection', { connected: false, mode: 'reconnecting' });
-      this.push();
-      this.pushGlobal();
+      // Most drops reconnect within a second or two; only if this one doesn't
+      // does everyone go dark (rather than lingering as falsely "online").
+      if (this._darkTimer) return;
+      this._darkTimer = setTimeout(() => {
+        this._darkTimer = null;
+        if (this.transport.connected) return;
+        this.peers.clear();
+        this.emit('connection', { connected: false, mode: 'reconnecting' });
+        this.push();
+        this.pushGlobal();
+      }, 4000);
     });
     this.transport.on('message', (m) => this.onMessage(m));
     this.transport.on('error', (e) => this.emit('error', e?.message || String(e)));
     await this.transport.connect();
+  }
+
+  /** The server's sign-in ticket for this account, kept outside the big friends blob. */
+  quickTicket() {
+    const me = () => String(this.self?.id || '').replace(/-/g, '').toLowerCase();
+    return {
+      get: () => {
+        const t = this.store.get('friendsTicket', null);
+        return t && t.uuid && t.uuid === me() && typeof t.token === 'string' && typeof t.device === 'string' ? t : null;
+      },
+      set: (token, device, uuid) => {
+        const id = String(uuid || '').replace(/-/g, '').toLowerCase();
+        if (id) this.store.set('friendsTicket', { token, device, uuid: id });
+      },
+      drop: () => this.store.delete('friendsTicket'),
+    };
+  }
+
+  /** The PC woke from sleep or got its network back. */
+  wake() {
+    const t = this.transport;
+    if (t.kind === 'socket') t.wake();
+    else this.connect();
   }
 
   hello() {

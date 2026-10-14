@@ -4,8 +4,9 @@
 // The media goes straight between players over WebRTC; the SolarClient
 // server only passes the small setup messages along (voice_call_*,
 // voice_rtc, voice_media), and a relay is only used for networks that
-// can't connect directly. Community voice audio keeps its own Opus relay
-// (renderer.js); this adds video on top of it.
+// can't connect directly. Community voice audio also goes direct between
+// players here; the server's Opus relay (renderer.js) only carries it to
+// people we have no direct connection with yet (or older launchers).
 // Loaded after renderer.js and shares its globals (voice prefs, mic chain,
 // friendsState, toasts, faces).
 // =====================================================================
@@ -18,6 +19,8 @@
   let call = null;                   // the friend call, ringing or live
   const roomWatch = new Set();       // people in the voice room whose screen we're watching
   let roomMembers = [];              // last voice_room member list for the room we're in
+  const roomAudio = new Set();       // people in the voice room we hear directly
+  const ROOM_DIRECT_MAX = 12;        // bigger rooms keep voice on the server relay (upload adds up)
 
   const ICONS = {
     cam: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>',
@@ -118,7 +121,8 @@
 
   // ---------- signaling ----------
   const signal = (frame) => Promise.resolve(window.nebula.voiceSignal?.(frame)).catch(() => false);
-  const send = (l, data) => signal({ t: 'voice_rtc', to: l.uuid, scope: l.scope, data: { ...data, sid: l.sid, to: l.remoteSid || undefined } });
+  // `ra`: this launcher plays room voice from the direct connection (older ones only take video).
+  const send = (l, data) => signal({ t: 'voice_rtc', to: l.uuid, scope: l.scope, data: { ...data, sid: l.sid, to: l.remoteSid || undefined, ra: 1 } });
   const roomScope = () => (voiceSession ? `room:${voiceSession.communityId}:${voiceSession.channelId}` : null);
   const callScope = () => (call && call.state !== 'ringing' ? `call:${call.id}` : null);
   const activeScope = () => callScope() || roomScope();
@@ -241,6 +245,7 @@
 
   async function handle(l, data) {
     if (!links.has(l.key)) return;
+    if (data.ra === 1) l.ra = true;
     if (data.kinds && typeof data.kinds === 'object') Object.assign(l.remoteKinds, data.kinds);
     if (data.want && typeof data.want === 'object') {
       l.wants = { screen: data.want.screen === true, cam: data.want.cam === true };
@@ -267,7 +272,7 @@
 
   /** What this person should get from us right now. */
   function streamFor(l, kind) {
-    if (kind === 'mic') return l.isCall ? call?.out?.stream || null : null;
+    if (kind === 'mic') return l.isCall ? call?.out?.stream || null : voiceSession?.rtcOut || null;
     const s = local[kind];
     if (!s) return null;
     return l.isCall || l.wants[kind] ? s : null;
@@ -302,6 +307,18 @@
   function tune(l) {
     for (const [slot, tr] of l.tx) {
       const t = tr.sender.track;
+      if (t?.kind === 'audio') {
+        // Voice goes first when the connection is tight, so it never queues behind video.
+        const p = tr.sender.getParameters();
+        const e = p.encodings?.[0];
+        const max = slot === 'mic:audio' && !l.isCall ? 64000 : undefined;
+        if (!e || (e.priority === 'high' && e.maxBitrate === max)) continue;
+        e.priority = 'high';
+        e.networkPriority = 'high';
+        if (max) e.maxBitrate = max; else delete e.maxBitrate;
+        tr.sender.setParameters(p).catch(() => {});
+        continue;
+      }
       if (!t || t.kind !== 'video') continue;
       const kind = slot.split(':')[0];
       const p = tr.sender.getParameters();
@@ -358,8 +375,11 @@
         try { l.pc.restartIce(); } catch { /* closing */ }
       }
       paintCall();
+    } else if (st === 'failed') {
+      try { l.pc.restartIce(); } catch { /* closing */ }
     }
     if (st === 'closed') closeLink(l);
+    else paintRoomAudio();
   }
 
   // ---------- local media ----------
@@ -818,6 +838,8 @@
     const me = myVoiceId();
     roomMembers = Array.isArray(m.members) ? m.members : [];
     const here = new Set();
+    // Voice goes direct to everyone in the room (up to a size), not only to people sharing video.
+    const direct = roomMembers.filter((x) => normVoiceId(x.uuid) !== me).length <= ROOM_DIRECT_MAX;
     for (const x of roomMembers) {
       const u = normVoiceId(x.uuid);
       if (u === me) continue;
@@ -825,8 +847,9 @@
       if (!x.screen) roomWatch.delete(u);
       const want = { cam: !!x.cam, screen: !!x.screen && roomWatch.has(u) };
       const key = `${scope}|${u}`;
-      if (!want.cam && !want.screen && !links.has(key)) continue;
+      if (!direct && !want.cam && !want.screen && !links.has(key)) continue;
       const l = link(scope, x.uuid);
+      sync(l);
       if (l.sentWant?.cam !== want.cam || l.sentWant?.screen !== want.screen) {
         l.sentWant = want;
         send(l, { want });
@@ -936,6 +959,7 @@
       host.closest('.cs-voice')?.classList.toggle('has-video', want.length > 0);
     }
     paintCallAudio();
+    paintRoomAudio();
     paintButtons();
     paintRes();
   }
@@ -961,6 +985,39 @@
     }
     for (const [k, a] of callAudio) if (!keep.has(k)) { a.srcObject = null; a.remove(); callAudio.delete(k); }
     applyCallPrefs();
+  }
+
+  /** Hand each room member's direct audio to the voice session (renderer.js), or take it back. */
+  function paintRoomAudio() {
+    const scope = roomScope();
+    const live = new Map();
+    if (scope && !call) {
+      for (const l of links.values()) {
+        if (l.scope !== scope || !l.ra || l.pc.connectionState !== 'connected') continue;
+        const s = l.remote.get('mic');
+        if (s) live.set(l.uuid, s);
+      }
+    }
+    for (const u of roomAudio) if (!live.has(u)) setVoiceRtcAudio(u, null);
+    roomAudio.clear();
+    for (const [u, s] of live) { setVoiceRtcAudio(u, s); roomAudio.add(u); }
+  }
+
+  /** True when everyone else in the room gets our voice directly, so the server relay can stay quiet. */
+  function roomAudioCovered() {
+    const scope = roomScope();
+    if (!scope || call) return false;
+    const me = myVoiceId();
+    let any = false;
+    for (const x of roomMembers) {
+      const u = normVoiceId(x.uuid);
+      if (u === me) continue;
+      const l = links.get(`${scope}|${u}`);
+      const tr = l?.tx.get('mic:audio');
+      if (!l?.ra || l.pc.connectionState !== 'connected' || !tr?.sender.track || !/send/.test(tr.currentDirection || '')) return false;
+      any = true;
+    }
+    return any;
   }
 
   // Resolution and frame rate on each tile, so you can see what quality is getting through.
@@ -1227,6 +1284,7 @@
     decorateMembers,
     onVoiceLeave,
     beforeVoiceJoin,
+    roomAudioCovered,
     get inCall() { return !!call; },
   };
 })();

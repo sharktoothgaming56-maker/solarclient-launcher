@@ -1992,12 +1992,26 @@ const VOICE_RATE = 48000;
 const VOICE_FRAME = 960;
 const voiceRooms = new Map(); // "communityId:channelId" -> [{ uuid, name }]
 let voiceSfxCtx = null;
+const VOICE_GATE_RMS = 0.008;
+const VOICE_GATE_HOLD_MS = 350;
 
+// Posts 20ms frames for the server relay, and outputs the same mic with the
+// mute and noise gate applied (per 128-sample block) for direct WebRTC audio.
 const VOICE_WORKLET = `
 class SolarMic extends AudioWorkletProcessor {
-  constructor() { super(); this.buf = new Float32Array(${VOICE_FRAME}); this.n = 0; }
-  process(inputs) {
+  constructor() {
+    super();
+    this.buf = new Float32Array(${VOICE_FRAME}); this.n = 0;
+    this.muted = false; this.gate = true; this.openUntil = 0; this.g = 0;
+    this.port.onmessage = (e) => {
+      const d = e.data || {};
+      if (typeof d.muted === 'boolean') this.muted = d.muted;
+      if (typeof d.gate === 'boolean') this.gate = d.gate;
+    };
+  }
+  process(inputs, outputs) {
     const ch = inputs[0] && inputs[0][0];
+    const out = outputs[0] && outputs[0][0];
     if (ch) {
       let i = 0;
       while (i < ch.length) {
@@ -2009,6 +2023,18 @@ class SolarMic extends AudioWorkletProcessor {
           this.port.postMessage(this.buf, [this.buf.buffer]);
           this.buf = new Float32Array(${VOICE_FRAME});
           this.n = 0;
+        }
+      }
+      if (out) {
+        let sum = 0;
+        for (let k = 0; k < ch.length; k++) sum += ch[k] * ch[k];
+        if (Math.sqrt(sum / ch.length) > ${VOICE_GATE_RMS}) this.openUntil = currentTime + ${VOICE_GATE_HOLD_MS / 1000};
+        const target = this.muted ? 0 : (!this.gate || currentTime < this.openUntil ? 1 : 0);
+        const step = target > this.g ? 1 / 240 : 1 / 1920;
+        for (let k = 0; k < ch.length; k++) {
+          if (this.g < target) this.g = Math.min(target, this.g + step);
+          else if (this.g > target) this.g = Math.max(target, this.g - step);
+          out[k] = ch[k] * this.g;
         }
       }
     }
@@ -2085,8 +2111,6 @@ function playVoiceSfx(kind) {
 }
 
 const VOICE_PREFS_KEY = 'solar.voice.prefs';
-const VOICE_GATE_RMS = 0.008;
-const VOICE_GATE_HOLD_MS = 350;
 
 function voicePrefs() {
   let p = {};
@@ -2208,6 +2232,8 @@ function applyVoicePrefs(session) {
   // Rumble, fans and desk bumps live below ~100 Hz; voices don't.
   session.lowCut.frequency.value = prefs.noiseCancel ? 100 : 10;
   routeMic(session);
+  session.mic?.port.postMessage({ muted: session.muted, gate: session.noiseCancel });
+  for (const t of session.rtcOut?.getAudioTracks() || []) t.enabled = !session.muted;
   for (const [uuid, p] of session.peers) {
     p.gain.gain.value = session.deafened ? 0 : peerVolume(uuid) / 100;
   }
@@ -2225,8 +2251,10 @@ async function leaveVoice(silent = false) {
   try { s.encoder.close(); } catch { /* ok */ }
   for (const p of s.peers.values()) {
     try { p.decoder.close(); } catch { /* ok */ }
+    dropRtcAudio(p);
   }
   try { s.stream?.getTracks().forEach((t) => t.stop()); } catch { /* ok */ }
+  try { s.rtcOut?.getTracks().forEach((t) => t.stop()); } catch { /* ok */ }
   try { await s.ctx.close(); } catch { /* ok */ }
   window.scMedia?.onVoiceLeave();
   if (!silent) playVoiceSfx('leave');
@@ -2273,6 +2301,11 @@ async function joinVoice(communityId, channelId) {
     const sink = ctx.createGain();
     sink.gain.value = 0;
     session.micGain.connect(session.mic).connect(sink).connect(ctx.destination);
+    // The same mic, gated, for people we reach directly over WebRTC (calls.js).
+    const rtcDest = ctx.createMediaStreamDestination();
+    rtcDest.channelCount = 1;
+    session.mic.connect(rtcDest);
+    session.rtcOut = rtcDest.stream;
     applyVoicePrefs(session);
     await attachMic(session);
   } catch (err) {
@@ -2305,6 +2338,8 @@ async function joinVoice(communityId, channelId) {
     if (session.muted) return;
     // Noise gate: between words, send nothing instead of background hiss.
     if (session.noiseCancel && now > session.openUntil) return;
+    // Everyone here hears us directly; the server relay would only add a duplicate.
+    if (window.scMedia?.roomAudioCovered()) return;
     if (session.encoder.encodeQueueSize > 10) return;
     const frame = new AudioData({
       format: 'f32-planar', sampleRate: VOICE_RATE, numberOfFrames: pcm.length,
@@ -2318,6 +2353,7 @@ async function joinVoice(communityId, channelId) {
   session.timer = setInterval(() => {
     if (voiceSession !== session) return;
     const now = performance.now();
+    for (const p of session.peers.values()) if (p.rtcLevel && rtcLevel(p) > 0.02) p.loudAt = now;
     session.speaking = !session.muted && now - session.loudAt < 300;
     const sig = `${session.speaking}|${session.muted}|${session.deafened}|${[...session.peers].map(([u, p]) => `${u}:${now - p.loudAt < 350}`).join(',')}`;
     if (sig !== session.paintSig) {
@@ -2351,8 +2387,58 @@ function voicePeer(session, uuid) {
     error: (err) => console.warn('[voice] decoder', err),
   });
   p.decoder.configure({ codec: 'opus', sampleRate: VOICE_RATE, numberOfChannels: 1 });
+  const old = session.peers.get(uuid);
+  if (old?.rtcSrc) {
+    Object.assign(p, pickRtc(old));
+    p.rtcSrc.connect(p.gain);
+  }
   session.peers.set(uuid, p);
   return p;
+}
+
+function pickRtc(p) {
+  return { rtcStream: p.rtcStream, rtcEl: p.rtcEl, rtcSrc: p.rtcSrc, rtcLevel: p.rtcLevel, rtcBuf: p.rtcBuf };
+}
+
+function dropRtcAudio(p) {
+  try { p.rtcSrc?.disconnect(); } catch { /* ok */ }
+  if (p.rtcEl) { p.rtcEl.srcObject = null; p.rtcEl.remove(); }
+  p.rtcStream = p.rtcEl = p.rtcSrc = p.rtcLevel = p.rtcBuf = null;
+}
+
+function rtcLevel(p) {
+  p.rtcBuf ||= new Float32Array(p.rtcLevel.fftSize);
+  p.rtcLevel.getFloatTimeDomainData(p.rtcBuf);
+  let sum = 0;
+  for (let i = 0; i < p.rtcBuf.length; i += 4) sum += p.rtcBuf[i] * p.rtcBuf[i];
+  return Math.sqrt(sum / (p.rtcBuf.length / 4));
+}
+
+/**
+ * Someone in the voice room reaches us directly over WebRTC (calls.js), or
+ * stopped (stream = null). While direct audio is up, their server-relayed
+ * frames are ignored; it plays through the same per-person volume and deafen.
+ */
+function setVoiceRtcAudio(uuid, stream) {
+  const s = voiceSession;
+  if (!s || s.closed) return;
+  const p = stream ? voicePeer(s, uuid) : s.peers.get(uuid);
+  if (!p || p.rtcStream === stream) return;
+  dropRtcAudio(p);
+  if (!stream) return;
+  // Chromium only feeds a remote WebRTC stream into Web Audio while a media element holds it.
+  const el = document.createElement('audio');
+  el.muted = true;
+  el.srcObject = stream;
+  el.play().catch(() => {});
+  p.rtcEl = el;
+  p.rtcStream = stream;
+  p.rtcSrc = s.ctx.createMediaStreamSource(stream);
+  p.rtcLevel = s.ctx.createAnalyser();
+  p.rtcLevel.fftSize = 2048;
+  p.rtcSrc.connect(p.rtcLevel);
+  p.rtcSrc.connect(p.gain);
+  p.nextTime = 0;
 }
 
 async function fillMicSelect(select) {
@@ -2680,8 +2766,13 @@ function playVoiceFrame(session, peer, data) {
   node.buffer = buf;
   node.connect(peer.gain);
   const now = ctx.currentTime;
-  // ~60ms of buffer absorbs network jitter; resync if we fell behind or drifted far ahead.
-  if (peer.nextTime < now + 0.01 || peer.nextTime > now + 0.4) peer.nextTime = now + 0.06;
+  // Adaptive jitter buffer: starts at 30ms, grows 15ms each time audio runs dry
+  // (up to 150ms on a bad connection), and creeps back down while it's smooth.
+  peer.jitter ||= 0.03;
+  // (A gap longer than 200ms is the noise gate between words, not the network.)
+  if (peer.nextTime && peer.nextTime < now + 0.003 && peer.nextTime > now - 0.2) peer.jitter = Math.min(0.15, peer.jitter + 0.015);
+  else peer.jitter = Math.max(0.03, peer.jitter - 0.0002);
+  if (peer.nextTime < now + 0.003 || peer.nextTime > now + peer.jitter + 0.12) peer.nextTime = now + peer.jitter;
   node.start(peer.nextTime);
   peer.nextTime += buf.duration;
 }
@@ -2702,6 +2793,7 @@ function onVoiceRoom(m) {
     for (const [u, p] of [...s.peers]) {
       if (after.has(normVoiceId(u))) continue;
       try { p.decoder.close(); } catch { /* ok */ }
+      dropRtcAudio(p);
       try { p.gain.disconnect(); } catch { /* ok */ }
       s.peers.delete(u);
     }
@@ -2716,6 +2808,7 @@ window.nebula.onVoiceEvent?.((m) => {
     const s = voiceSession;
     if (!s || s.deafened || !m.from || typeof m.d !== 'string') return;
     const p = voicePeer(s, m.from);
+    if (p.rtcStream) return;
     try {
       p.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: Number(m.ts) || 0, data: b64ToBytes(m.d) }));
     } catch { /* bad frame */ }
@@ -2727,6 +2820,9 @@ window.nebula.onVoiceEvent?.((m) => {
     leaveVoice(true);
   }
 });
+
+// Network back (Wi-Fi switch, cable, VPN): check the online connection right away.
+window.addEventListener('online', () => window.nebula.friendsWake?.()?.catch?.(() => {}));
 
 // The server forgets voice rooms when the connection drops; rejoin on reconnect.
 window.nebula.onFriendsConnection?.((c) => {
