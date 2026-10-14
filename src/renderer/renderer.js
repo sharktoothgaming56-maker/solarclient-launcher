@@ -246,8 +246,7 @@ function ensureBackgrounds() {
   let w = 0, h = 0;
   let layerA = null, layerB = null;    // pre-rendered star fields
   let shooters = [];
-  let running = false, rafId = 0;
-  let last = 0;
+  let running = false, rafId = 0, timer = 0;
 
   // Cheap fixed-point twinkle: instead of Math.sin() per star per frame,
   // the two layers hold interleaved stars and we cross-fade between them.
@@ -281,13 +280,13 @@ function ensureBackgrounds() {
     buildLayers();
   }
 
+  // ~10fps ambience — enough twinkle, half the GPU cost under glass. A timer
+  // paces it so the page isn't woken on every display refresh in between.
+  const tick = () => { timer = 0; rafId = requestAnimationFrame(frame); };
   function frame(t) {
-    if (!running) { rafId = 0; return; }
-    rafId = requestAnimationFrame(frame);
-
-    // ~10fps ambience — enough twinkle, half the GPU cost under glass.
-    if (t - last < 100) return;
-    last = t;
+    rafId = 0;
+    if (!running) return;
+    timer = setTimeout(tick, 100);
 
     if (!layerA) return;
     ctx.clearRect(0, 0, w, h);
@@ -332,18 +331,20 @@ function ensureBackgrounds() {
     if (!theme.particles || document.hidden || !document.hasFocus()) return;
     resize();
     running = true;
-    last = 0;
-    if (!rafId) rafId = requestAnimationFrame(frame);
+    if (!rafId && !timer) rafId = requestAnimationFrame(frame);
   }
 
   function stop() {
     running = false;
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (timer) { clearTimeout(timer); timer = 0; }
     if (w && h) ctx.clearRect(0, 0, w, h);
   }
 
   // Anything that can change whether ambience is worth paying for.
-  window.addEventListener('resize', () => { resize(); }, { passive: true });
+  // Rebuilding the star layers is a full-window redraw; do it once the window stops changing size.
+  let resizeT = 0;
+  window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(resize, 150); }, { passive: true });
   document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
   window.addEventListener('focus', start);
   window.addEventListener('blur', () => {
@@ -1098,7 +1099,7 @@ function navInk() {
   ink.style.transform = `translateY(${Math.round(on.offsetTop + (on.offsetHeight - h) / 2)}px)`;
   ink.classList.add('on');
 }
-window.addEventListener('resize', () => navInk());
+window.addEventListener('resize', scPerFrame(() => navInk()));
 function navFx(btn, view, e) {
   if (scMotionOff()) return;
   const r = btn.getBoundingClientRect();
@@ -1968,6 +1969,7 @@ function closeCommunityStage() {
   document.getElementById('community-stage')?.classList.add('hidden');
   document.getElementById('cs-addbar')?.classList.add('hidden');
   document.getElementById('cs-invite-pop')?.classList.add('hidden');
+  csToggleMembers(false);
   openCommunityId = null;
   openChannelId = null;
   document.body.classList.remove('community-open');
@@ -2226,6 +2228,7 @@ async function leaveVoice(silent = false) {
   }
   try { s.stream?.getTracks().forEach((t) => t.stop()); } catch { /* ok */ }
   try { await s.ctx.close(); } catch { /* ok */ }
+  window.scMedia?.onVoiceLeave();
   if (!silent) playVoiceSfx('leave');
   syncVoiceHangup();
   if (openCommunityId) renderCommunityStage();
@@ -2237,6 +2240,7 @@ async function joinVoice(communityId, channelId) {
     throw new Error('Voice chat is not supported on this system.');
   }
   if (!friendsState?.connected) throw new Error('Connect to SolarClient online to use voice chat.');
+  await window.scMedia?.beforeVoiceJoin();
   await leaveVoice(true);
   const ctx = new AudioContext({ sampleRate: VOICE_RATE, latencyHint: 'interactive' });
   const session = {
@@ -2370,6 +2374,8 @@ const VOICE_ICONS = {
   micOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
   headphones: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h3v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h3a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z"/></svg>',
   headphonesOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h3v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h3a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  text: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM7 6h10v2H7zm0 3.5h10v2H7zM7 13h6v2H7z"/></svg>',
+  people: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>',
   hangup: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a1 1 0 0 1 0-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.3 11.3 0 0 0-2.67-1.85 1 1 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>',
 };
 
@@ -2794,6 +2800,7 @@ function paintVoiceMembers() {
         : others ? 'You joined this voice chat. Your microphone is on.' : 'You joined this voice chat. Waiting for others to join.')
       : (list.length ? `${list.length} in this voice chat.` : 'Nobody is in this voice chat yet.');
   }
+  window.scMedia?.decorateMembers(host);
 }
 
 /** Small face stack beside each voice channel showing who is in it right now. */
@@ -3074,7 +3081,9 @@ function openCommunityStage(communityId, channelId) {
   renderCommunityStage();
 }
 
+let csDragId = null;
 function renderCommunityStage() {
+  if (csDragId) return;
   const community = readCommunities().find((c) => c.id === openCommunityId);
   const stage = document.getElementById('community-stage');
   if (!community || !stage) return;
@@ -3098,20 +3107,18 @@ function renderCommunityStage() {
   }
   let stagger = 0;
   const st = csState();
+  const beta = betaLayoutOn();
   const foldHead = (key, label, count) => `<button type="button" class="cs-kind${st.collapsed[key] ? ' shut' : ''}" data-fold="${escapeHtml(key)}" style="--i:${stagger++}">
       <span><svg class="cs-fold" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3"/></svg>${label}</span><em>${count}</em></button>`;
-  const group = (kind, label) => {
-    const ofKind = channels.filter((ch) => ch.kind === kind);
-    const key = `${community.id}:${kind}`;
-    const shut = !!st.collapsed[key];
-    const head = foldHead(key, label, ofKind.length);
-    const rows = ofKind.filter((ch) => !shut || ch.id === openChannelId || csUnread(community, ch).at).map((ch) => {
+  const canArrange = beta && community.isOwner;
+  const chRow = (ch) => {
+      const kind = ch.kind === 'voice' ? 'voice' : 'text';
       const u = csUnread(community, ch);
       const muted = csMuted(community, ch);
       const here = ch.id === openChannelId;
       return `
-      <button type="button" class="cs-ch ${here ? 'active' : ''} ${u.n && !muted && !here ? 'unread' : ''} ${muted ? 'muted' : ''}" data-ch="${escapeHtml(ch.id)}" style="--i:${stagger++}">
-        <span class="cs-ch-icon">${kind === 'voice' ? VOICE_ICONS.headphones : '#'}</span><span class="cs-ch-name">${escapeHtml(ch.name)}</span>
+      <button type="button" class="cs-ch ${here ? 'active' : ''} ${u.n && !muted && !here ? 'unread' : ''} ${muted ? 'muted' : ''}" data-ch="${escapeHtml(ch.id)}" data-kind="${kind}"${canArrange ? ' draggable="true"' : ''} style="--i:${stagger++}">
+        <span class="cs-ch-icon">${kind === 'voice' ? VOICE_ICONS.headphones : beta ? VOICE_ICONS.text : '#'}</span><span class="cs-ch-name">${escapeHtml(ch.name)}</span>
         ${muted ? '<svg class="cs-ch-muted" viewBox="0 0 24 24" aria-label="Muted"><path d="M20 18.7 5.3 4 4 5.3l3.1 3.1A6 6 0 0 0 6 12v5l-2 2v1h13.7l1 1 1.3-1.3zM12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6.8V11a6 6 0 0 0-4.5-5.8V4.5a1.5 1.5 0 0 0-3 0v.7c-.5.1-1 .3-1.4.6z"/></svg>' : ''}
         ${u.at && !here ? `<span class="cs-ch-badge">${u.at > 9 ? '9+' : u.at}</span>` : ''}
         ${kind === 'voice' ? `<span class="cs-ch-occ" data-occ="${escapeHtml(ch.id)}"></span>` : ''}
@@ -3121,31 +3128,72 @@ function renderCommunityStage() {
         </span>` : ''}
       </button>
     `;
-    }).join('');
+  };
+  const showRow = (shut) => (ch) => !shut || ch.id === openChannelId || csUnread(community, ch).at;
+  const group = (kind, label) => {
+    const ofKind = channels.filter((ch) => ch.kind === kind);
+    const key = `${community.id}:${kind}`;
+    const shut = !!st.collapsed[key];
+    const head = foldHead(key, label, ofKind.length);
+    const rows = ofKind.filter(showRow(shut)).map(chRow).join('');
     return `${head}${rows || (shut ? '' : `<div class="cs-empty" style="--i:${stagger++}">None yet</div>`)}`;
   };
-  const textGroup = group('text', 'Text channels');
-  const voiceGroup = group('voice', 'Voice channels');
+  // Beta: categories (built-in or the owner's own), each a block the owner can drag channels into.
+  const catBlocks = () => {
+    const L = csLayout(community);
+    const loose = L.loose.length ? `<div class="cs-cat" data-cat="">${L.loose.map(chRow).join('')}</div>` : '';
+    return loose + L.cats.map((cat) => {
+      const chans = L.of.get(cat.id);
+      const key = `${community.id}:${cat.id}`;
+      const shut = !!st.collapsed[key];
+      const rows = chans.filter(showRow(shut)).map(chRow).join('');
+      return `<div class="cs-cat" data-cat="${escapeHtml(cat.id)}">
+        <div class="cs-cat-head">${foldHead(key, escapeHtml(cat.name), chans.length)}${community.isOwner ? `<button type="button" class="cs-cat-add" data-cat-add="${escapeHtml(cat.id)}" title="Add a channel to ${escapeHtml(cat.name)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></button>` : ''}</div>
+        ${rows || (shut ? '' : `<div class="cs-empty cs-cat-empty" style="--i:${stagger++}">${community.isOwner ? 'Drag channels here' : 'Nothing here yet'}</div>`)}
+      </div>`;
+    }).join('');
+  };
+  const channelBlocks = beta ? catBlocks() : `${group('text', 'Text channels')}${group('voice', 'Voice channels')}`;
   const membersKey = `${community.id}:members`;
   const onlineN = members.filter((p) => csOnline.has(normVoiceId(p.uuid))).length;
   const memberHead = members.length ? foldHead(membersKey, `Members${onlineN ? ` · ${onlineN} online` : ''}`, members.length) : '';
   const sortedMembers = [...members].sort((a, b) => (csOnline.has(normVoiceId(b.uuid)) - csOnline.has(normVoiceId(a.uuid)))
     || ((b.uuid === community.ownerId) - (a.uuid === community.ownerId)) || String(a.name).localeCompare(String(b.name)));
-  list.innerHTML = `
-    <span class="cs-ch-ind" aria-hidden="true"></span>
-    ${textGroup}
-    ${voiceGroup}
-    ${memberHead}${st.collapsed[membersKey] ? '' : sortedMembers.map((p) => {
-      const on = csOnline.has(normVoiceId(p.uuid));
-      return `
-      <div class="cs-invited cs-person ${on ? 'online' : 'away'}" data-uuid="${escapeHtml(p.uuid)}" data-name="${escapeHtml(p.name)}" style="--i:${stagger++}">
-        <span class="cs-person-face-wrap"><img class="cs-person-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="cs-person-dot" title="${on ? 'Online' : 'Offline'}"></i></span>
+  const memberRow = (p, i) => {
+    const on = csOnline.has(normVoiceId(p.uuid));
+    return `
+      <div class="cs-invited cs-person ${on ? 'online' : 'away'}" data-uuid="${escapeHtml(p.uuid)}" data-name="${escapeHtml(p.name)}" style="--i:${i}">
+        <span class="cs-person-face-wrap"><img class="cs-person-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="cs-person-dot" data-tip="${on ? 'Online' : 'Offline'}"></i></span>
         <span class="cs-person-name" ${personAttr(p.uuid, p.name)}>${escapeHtml(csName(p.uuid, p.name))}${st.nick[normVoiceId(p.uuid)] ? `<em class="cs-real-name">${escapeHtml(p.name)}</em>` : ''}</span>
         ${csIgnored(p.uuid) ? '<span class="cs-person-ignored" title="You ignore their messages">Ignored</span>' : ''}
         ${p.uuid === community.ownerId ? '<span class="cs-person-owner" title="Owner">Owner</span>' : ''}
         ${reportFlag(p.uuid, p.name, { where: `Community: ${community.name}` })}
       </div>`;
-    }).join('')}
+  };
+  // Beta: members live behind the Members button in the header, not in the channel column.
+  const memBtn = document.getElementById('cs-members');
+  const memPop = document.getElementById('cs-members-pop');
+  if (memBtn) {
+    const offN = members.length - onlineN;
+    memBtn.innerHTML = `${VOICE_ICONS.people}<span><b>${members.length}</b> ${members.length === 1 ? 'member' : 'members'}</span><span class="cs-mem-on" title="Online"><i></i>${onlineN}</span><span class="cs-mem-on off" title="Offline"><i></i>${offN}</span>`;
+    memBtn.title = `${members.length} ${members.length === 1 ? 'member' : 'members'}: ${onlineN} online, ${offN} offline`;
+    memBtn.onclick = (e) => { e.stopPropagation(); csToggleMembers(); };
+  }
+  if (memPop && !memPop.classList.contains('hidden')) {
+    const on = sortedMembers.filter((p) => csOnline.has(normVoiceId(p.uuid)));
+    const off = sortedMembers.filter((p) => !csOnline.has(normVoiceId(p.uuid)));
+    let i = 0;
+    const section = (label, people, cls) => (people.length
+      ? `<div class="cs-mem-group ${cls}"><i></i>${label}<em>${people.length}</em></div>${people.map((p) => memberRow(p, i++)).join('')}` : '');
+    memPop.innerHTML = `
+      <div class="cs-mem-head"><span class="cs-mem-title">Members <em>${members.length}</em></span><span class="cs-mem-sub"><i></i>${onlineN}<i class="off"></i>${members.length - onlineN}</span></div>
+      <div class="cs-mem-list">${section('Online', on, 'on')}${section('Offline', off, 'off') || ''}${members.length ? '' : '<div class="cs-pop-empty">Nobody here yet.</div>'}</div>`;
+  }
+  list.innerHTML = `
+    <span class="cs-ch-ind" aria-hidden="true"></span>
+    ${canArrange ? '<span class="cs-drop-line" aria-hidden="true"></span>' : ''}
+    ${channelBlocks}
+    ${beta ? '' : `${memberHead}${st.collapsed[membersKey] ? '' : sortedMembers.map((p) => memberRow(p, stagger++)).join('')}`}
     <button type="button" class="cs-leave" id="cs-leave" style="--i:${stagger++}">${community.isOwner ? 'Delete community' : 'Leave community'}</button>
   `;
   const ind = list.querySelector('.cs-ch-ind');
@@ -3222,7 +3270,7 @@ function renderCommunityStage() {
       renderCommunityStage();
     });
   });
-  list.querySelectorAll('.cs-person').forEach((row) => {
+  [...list.querySelectorAll('.cs-person'), ...(memPop?.querySelectorAll('.cs-person') || [])].forEach((row) => {
     row.addEventListener('contextmenu', (e) => {
       if (e.target.closest('.rflag')) return;
       e.preventDefault();
@@ -3233,14 +3281,18 @@ function renderCommunityStage() {
   const addBar = document.getElementById('cs-addbar');
   const addInput = document.getElementById('cs-new-ch');
   let addKind = addBar?.dataset.kind || 'text';
-  const showAddBar = (kind) => {
+  let addCat = addBar?.dataset.cat || '';
+  const showAddBar = (kind, cat = '') => {
     addKind = kind;
+    addCat = cat;
     if (addBar) {
       addBar.dataset.kind = kind;
+      addBar.dataset.cat = cat;
       addBar.classList.remove('hidden');
     }
     if (addInput) {
-      addInput.placeholder = kind === 'voice' ? 'Voice channel name' : 'Text channel name';
+      const where = beta && cat ? csLayout(community).cats.find((c) => c.id === cat)?.name : '';
+      addInput.placeholder = `${kind === 'voice' ? 'Voice' : 'Text'} channel name${where ? ` in ${where}` : ''}`;
       addInput.focus();
     }
     document.getElementById('cs-invite-pop')?.classList.add('hidden');
@@ -3249,12 +3301,67 @@ function renderCommunityStage() {
     const name = (addInput?.value || '').trim();
     if (!name) { addInput?.focus(); return; }
     const id = newRailId();
-    window.nebula.communitiesAddChannel({ id: community.id, channel: { id, name, kind: addKind === 'voice' ? 'voice' : 'text' } })
+    const kind = addKind === 'voice' ? 'voice' : 'text';
+    // Beta: a new channel lands at the end of the category it was added to.
+    const L = beta ? csLayout(community) : null;
+    const cat = L ? (addCat && L.cats.some((c) => c.id === addCat) ? addCat
+      : L.custom ? (L.cats.find((c) => L.of.get(c.id).some((ch) => ch.kind === kind)) || L.cats[0])?.id || null : kind) : null;
+    const needsLayout = L && (L.custom ? true : cat !== kind);
+    window.nebula.communitiesAddChannel({ id: community.id, channel: { id, name, kind, ...(L?.custom && cat ? { cat } : {}) } })
+      .then(() => {
+        if (!needsLayout) return;
+        const now = communityState.find((c) => c.id === community.id) || community;
+        const lay = csLayoutIds(now);
+        for (const ids of lay.groups.values()) { const at = ids.indexOf(id); if (at >= 0) ids.splice(at, 1); }
+        lay.loose = lay.loose.filter((x) => x !== id);
+        (lay.groups.get(cat) || lay.loose).push(id);
+        csSaveLayout(now, lay.cats, lay.groups, lay.loose);
+      })
       .catch((err) => showToast("Couldn't add channel", err?.message || String(err), 'error'));
     if (addInput) addInput.value = '';
     addBar?.classList.add('hidden');
     openChannelId = id;
   };
+  // Beta: one Add button for text channels, voice channels and categories.
+  const addBtn = document.getElementById('cs-add');
+  if (addBtn) {
+    addBtn.style.display = community.isOwner ? '' : 'none';
+    addBtn.onclick = (e) => {
+      e.stopPropagation();
+      const r = scRect(addBtn);
+      scMenu(r.left, r.bottom + 6, [
+        ['Text channel', () => showAddBar('text')],
+        ['Voice channel', () => showAddBar('voice')],
+        '-',
+        ['Category', () => csNewCategory(community)],
+      ], { title: 'Add' });
+    };
+  }
+  list.querySelectorAll('.cs-cat-add').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = scRect(b);
+    const cat = b.dataset.catAdd;
+    scMenu(r.left, r.bottom + 6, [
+      ['Text channel', () => showAddBar('text', cat)],
+      ['Voice channel', () => showAddBar('voice', cat)],
+    ], { title: 'Add here' });
+  }));
+  if (canArrange) {
+    list.querySelectorAll('.cs-cat-head .cs-kind').forEach((head) => head.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const id = head.closest('.cs-cat')?.dataset.cat;
+      const cat = csLayout(community).cats.find((c) => c.id === id);
+      if (!cat) return;
+      scMenu(e.clientX, e.clientY, [
+        ['Add text channel', () => showAddBar('text', id)],
+        ['Add voice channel', () => showAddBar('voice', id)],
+        '-',
+        ['Rename category', () => csRenameCategory(community, id)],
+        ['Delete category', () => csDeleteCategory(community, id), { danger: true }],
+      ], { title: cat.name });
+    }));
+    csWireChannelDrag(list, community);
+  }
   const addText = document.getElementById('cs-add-text');
   const addVoice = document.getElementById('cs-add-voice');
   const addGo = document.getElementById('cs-add-go');
@@ -3359,6 +3466,7 @@ function renderCommunityStage() {
       }).catch(() => paintVoiceMembers());
     }
     paintVoiceMembers();
+    window.scMedia?.bindStage(main);
     main.querySelector('#cs-join')?.addEventListener('click', async () => {
       try { await joinVoice(community.id, channel.id); }
       catch (err) { showToast('Microphone', err?.message || 'Could not use the microphone.', 'error'); }
@@ -3453,7 +3561,7 @@ function renderCommunityStage() {
   const replying = csReply && csReply.key === draftKey ? csReply : null;
   main.innerHTML = `
     <div class="cs-main-head">
-      <span class="cs-main-glyph cs-main-hash">#</span>
+      <span class="cs-main-glyph cs-main-hash">${betaLayoutOn() ? VOICE_ICONS.text : '#'}</span>
       <b class="cs-main-name">${escapeHtml(channel.name)}</b>
       <span class="cs-main-sub">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6 3.2 1.9-.9 1.5L11 13.5V7h2v5.6z"/></svg>
@@ -4209,9 +4317,192 @@ function csNotifyNew(prev, next) {
   if (ping && st.prefs.ping) scPing();
 }
 
+/**
+ * Beta: a community's categories and the channels in each, in order. Until the
+ * owner customizes it, there are two built-in categories split by channel kind.
+ */
+function csLayout(community) {
+  const channels = community.channels || [];
+  const custom = Array.isArray(community.categories) && community.categories.length > 0;
+  const cats = custom
+    ? community.categories.map((c) => ({ id: String(c.id), name: String(c.name || 'Category') }))
+    : [{ id: 'text', name: 'Text channels' }, { id: 'voice', name: 'Voice channels' }];
+  const of = new Map(cats.map((c) => [c.id, []]));
+  const loose = [];
+  for (const ch of channels) {
+    const k = custom ? ch.cat : ch.kind === 'voice' ? 'voice' : 'text';
+    if (k != null && of.has(k)) of.get(k).push(ch); else loose.push(ch);
+  }
+  return { custom, cats, of, loose };
+}
+
+/** groups: category id -> channel ids in order. Shows the change right away, then tells the server. */
+function csSaveLayout(community, cats, groups, loose = []) {
+  const order = [
+    ...loose.map((id) => ({ id, cat: null })),
+    ...cats.flatMap((c) => (groups.get(c.id) || []).map((id) => ({ id, cat: c.id }))),
+  ];
+  const live = communityState.find((c) => c.id === community.id);
+  if (live) {
+    const byId = new Map((live.channels || []).map((ch) => [ch.id, ch]));
+    const next = order.map((o) => byId.has(o.id) && { ...byId.get(o.id), cat: o.cat }).filter(Boolean);
+    for (const ch of live.channels || []) if (!order.some((o) => o.id === ch.id)) next.push(ch);
+    live.categories = cats.map(({ id, name }) => ({ id, name }));
+    live.channels = next;
+  }
+  renderCommunityStage();
+  Promise.resolve(window.nebula.communitiesSetLayout?.({ id: community.id, categories: cats, order }))
+    .catch((err) => showToast("Couldn't save the layout", err?.message || String(err), 'error'));
+}
+
+/** The current layout as plain ids, ready to edit and pass to csSaveLayout. */
+function csLayoutIds(community) {
+  const L = csLayout(community);
+  return {
+    cats: L.cats.map((c) => ({ ...c })),
+    groups: new Map(L.cats.map((c) => [c.id, L.of.get(c.id).map((ch) => ch.id)])),
+    loose: L.loose.map((ch) => ch.id),
+  };
+}
+
+async function csNewCategory(community) {
+  const name = (await showPrompt('New category', 'Category name', '') || '').trim().slice(0, 32);
+  if (!name) return;
+  const now = communityState.find((c) => c.id === community.id) || community;
+  const lay = csLayoutIds(now);
+  const id = newRailId();
+  lay.cats.push({ id, name });
+  lay.groups.set(id, []);
+  csSaveLayout(now, lay.cats, lay.groups, lay.loose);
+}
+
+async function csRenameCategory(community, catId) {
+  const now = communityState.find((c) => c.id === community.id) || community;
+  const lay = csLayoutIds(now);
+  const cat = lay.cats.find((c) => c.id === catId);
+  if (!cat) return;
+  const name = (await showPrompt('Rename category', 'Category name', cat.name) || '').trim().slice(0, 32);
+  if (!name || name === cat.name) return;
+  cat.name = name;
+  csSaveLayout(now, lay.cats, lay.groups, lay.loose);
+}
+
+async function csDeleteCategory(community, catId) {
+  const now = communityState.find((c) => c.id === community.id) || community;
+  const lay = csLayoutIds(now);
+  const cat = lay.cats.find((c) => c.id === catId);
+  if (!cat) return;
+  const moved = lay.groups.get(catId) || [];
+  const ok = await showConfirm(
+    moved.length ? `Delete the ${cat.name} category? Its ${moved.length === 1 ? 'channel moves' : `${moved.length} channels move`} to the top of the list.` : `Delete the ${cat.name} category?`,
+    { title: 'Delete category?', confirmLabel: 'Delete' });
+  if (!ok) return;
+  lay.cats = lay.cats.filter((c) => c.id !== catId);
+  lay.groups.delete(catId);
+  lay.loose.push(...moved);
+  csSaveLayout(now, lay.cats, lay.groups, lay.loose);
+}
+
+/** Owner, beta: drag a channel onto another channel (above or below it) or onto a category. */
+function csWireChannelDrag(list, community) {
+  const line = list.querySelector('.cs-drop-line');
+  let target = null;   // { cat, before: channel id or null for the end }
+  const clear = () => {
+    line?.classList.remove('on');
+    list.querySelectorAll('.cs-cat.drop-into').forEach((n) => n.classList.remove('drop-into'));
+    target = null;
+  };
+  list.querySelectorAll('.cs-ch[draggable]').forEach((row) => {
+    row.addEventListener('dragstart', (e) => {
+      csDragId = row.dataset.ch;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.querySelector('.cs-ch-name')?.textContent || '');
+      requestAnimationFrame(() => row.classList.add('drag-src'));
+      list.classList.add('cs-dragging');
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('drag-src');
+      list.classList.remove('cs-dragging');
+      clear();
+      csDragId = null;
+      renderCommunityStage();
+    });
+  });
+  list.addEventListener('dragover', (e) => {
+    if (!csDragId) return;
+    const block = e.target.closest('.cs-cat');
+    if (!block) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const lr = list.getBoundingClientRect();
+    const rows = [...block.querySelectorAll('.cs-ch')].filter((r) => r.dataset.ch !== csDragId);
+    let before = null, y;
+    for (const r of rows) {
+      const b = r.getBoundingClientRect();
+      if (e.clientY < b.top + b.height / 2) { before = r.dataset.ch; y = b.top - 2; break; }
+      y = b.bottom + 1;
+    }
+    if (y == null) { const h = block.querySelector('.cs-cat-head, .cs-empty') || block; y = h.getBoundingClientRect().bottom + 1; }
+    target = { cat: block.dataset.cat, before };
+    list.querySelectorAll('.cs-cat.drop-into').forEach((n) => n !== block && n.classList.remove('drop-into'));
+    block.classList.add('drop-into');
+    if (line) {
+      line.style.transform = `translateY(${Math.round(y - lr.top + list.scrollTop)}px)`;
+      line.classList.add('on');
+    }
+  });
+  list.addEventListener('dragleave', (e) => { if (!list.contains(e.relatedTarget)) clear(); });
+  list.addEventListener('drop', (e) => {
+    if (!csDragId || !target) return;
+    e.preventDefault();
+    const now = communityState.find((c) => c.id === community.id) || community;
+    const lay = csLayoutIds(now);
+    for (const ids of [...lay.groups.values(), lay.loose]) { const at = ids.indexOf(csDragId); if (at >= 0) ids.splice(at, 1); }
+    const into = target.cat ? lay.groups.get(target.cat) : lay.loose;
+    if (!into) return;
+    const at = target.before ? into.indexOf(target.before) : -1;
+    into.splice(at < 0 ? into.length : at, 0, csDragId);
+    clear();
+    csDragId = null;
+    csIndicator = null;
+    csSaveLayout(now, lay.cats, lay.groups, lay.loose);
+  });
+}
+
+/** Beta: the member list drops down from the Members button and stays out of the way otherwise. */
+function csToggleMembers(open) {
+  const pop = document.getElementById('cs-members-pop');
+  const btn = document.getElementById('cs-members');
+  if (!pop || !btn) return;
+  const show = open ?? pop.classList.contains('hidden');
+  btn.classList.toggle('on', show);
+  if (!show) { pop.classList.add('hidden'); return; }
+  document.getElementById('cs-invite-pop')?.classList.add('hidden');
+  pop.classList.remove('hidden');
+  const r = btn.getBoundingClientRect();
+  const s = (pop.offsetParent || document.body).getBoundingClientRect();
+  pop.style.top = `${Math.round(r.bottom - s.top + 8)}px`;
+  pop.style.left = `${Math.round(Math.max(8, r.right - pop.offsetWidth) - s.left)}px`;
+  pop.classList.add('fresh');
+  clearTimeout(pop._fresh);
+  pop._fresh = setTimeout(() => pop.classList.remove('fresh'), 700);
+  renderCommunityStage();
+}
+document.addEventListener('mousedown', (e) => {
+  const pop = document.getElementById('cs-members-pop');
+  if (!pop || pop.classList.contains('hidden')) return;
+  if (pop.contains(e.target) || e.target.closest('#cs-members, .sc-menu, .people-menu, .confirm-modal, .modal-scrim, .pf-overlay')) return;
+  csToggleMembers(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.getElementById('cs-members-pop')?.classList.contains('hidden')) csToggleMembers(false);
+});
+window.addEventListener('resize', () => csToggleMembers(false));
+
 async function openCommunityInvite(community) {
   const pop = document.getElementById('cs-invite-pop');
   if (!pop || !community) return;
+  csToggleMembers(false);
   if (!pop.classList.contains('hidden') && pop.dataset.for === community.id) {
     pop.classList.add('hidden');
     return;
@@ -4372,6 +4663,7 @@ function applyBetaLayout(on) {
   requestAnimationFrame(navInk);
   renderAccountBox();
   renderCommunities();
+  setTimeout(refreshOnlineIndicator, 0);
   // Beta floating panels all share the admin panel's glass, so the extra
   // per-panel blur only applies in the stable layout.
   for (const el of document.querySelectorAll('#live-chat, #online-pop')) {
@@ -6164,7 +6456,7 @@ function fmtLeft(ms) {
     screen.classList.toggle('hidden', !ban);
     clearInterval(tick); tick = null;
     if (!ban) return;
-    try { for (const k of ['admin', 'chat']) if (scFloat.get(k)?.win) scDock(k, { gone: true }); } catch { /* not wired yet */ }
+    try { for (const k of ['admin', 'chat', 'online']) if (scFloat.get(k)?.win) scDock(k, { shut: true }); } catch { /* not wired yet */ }
     document.getElementById('mod-modal')?.classList.add('hidden');
     document.getElementById('live-chat')?.classList.add('hidden');
     paint();
@@ -6866,6 +7158,8 @@ function scPanelScale(panel, baseW) {
   panel._scScale = true;
   const apply = () => {
     if (!betaLayoutOn()) { panel.style.removeProperty('--sc-zoom'); return; }
+    // Re-zooming every frame of a resize drag re-lays out all the text each frame; it's applied once on release.
+    if (panel.closest('.resizing')) return;
     const w = panel.offsetWidth;
     if (!w) return;
     const z = Math.max(0.9, Math.min(1.22, w / baseW));
@@ -6874,6 +7168,7 @@ function scPanelScale(panel, baseW) {
     panel.classList.toggle('sc-narrow', w / z < 380);
   };
   new ResizeObserver(apply).observe(panel);
+  panel._scZoom = apply;
   apply();
 }
 
@@ -6918,7 +7213,7 @@ function popDown(panel, chip) {
   void panel.offsetWidth;
   panel.classList.add('sc-pop');
   clearTimeout(panel._popTimer);
-  panel._popTimer = setTimeout(() => panel.classList.remove('sc-pop'), 900);
+  panel._popTimer = setTimeout(() => panel.classList.remove('sc-pop'), 380);
   chip?.classList.remove('sc-chip-press');
   void chip?.offsetWidth;
   chip?.classList.add('sc-chip-press');
@@ -6927,7 +7222,7 @@ function popDown(panel, chip) {
 const SC_RIPPLE = [
   '#update-chip', '#online-indicator', '#ingame-indicator', '#chat-chip', '#mod-chip',
   '#mod-modal .mod-tab', '#mod-modal .mod-filter button', '#mod-modal .mod-act', '#mod-modal .pill-btn',
-  '#online-pop .op-views button', '#online-pop .op-group', '#online-pop .op-act',
+  '#online-pop .op-views button', '#online-pop .op-act',
   '#live-chat-send', '.sc-hbtn', '.mod-icon-btn', '.live-chat-x',
 ].join(', ');
 
@@ -6953,6 +7248,56 @@ function scRipple(e) {
 }
 document.addEventListener('pointerdown', scRipple, true);
 
+/**
+ * Beta: slow looping motion (nebula drift, skin bob, sheens, pulsing dots) is
+ * stepped at 30fps. At the display's own rate any one of them makes every
+ * glass pane redraw 120 times a second, even the 8px online dot, and that
+ * leaves no frames for panels and buttons. Fast loops (spinners) are left alone.
+ */
+(function scAmbient() {
+  const tracked = new Map();   // animation -> { start on the document timeline, run: CSS wants it playing }
+  let tick = 0, scan = 0;
+  // The stylesheet still decides when these stop (window in the background, a
+  // modal over the nebula); picking up again continues from the same frame.
+  function refresh() {
+    const now = document.timeline.currentTime;
+    for (const [a, s] of tracked) {
+      const run = getComputedStyle(a.effect.target, a.effect.pseudoElement).animationPlayState.split(',')[0].trim() !== 'paused';
+      if (run && !s.run) s.start = now - (a.currentTime || 0);
+      s.run = run;
+    }
+  }
+  function adopt() {
+    for (const a of document.getAnimations()) {
+      if (tracked.has(a) || !a.animationName || a.playState !== 'running') continue;
+      const t = a.effect?.getTiming();
+      if (t?.iterations !== Infinity || !(t.duration >= 1200 || a.animationName === 'modSpin')) continue;
+      tracked.set(a, { start: a.startTime, run: true });
+      a.pause();
+    }
+    for (const a of tracked.keys()) if (a.playState === 'idle' || !a.effect?.target?.isConnected) tracked.delete(a);
+    refresh();
+  }
+  function step() {
+    if (document.hidden) return;
+    const now = document.timeline.currentTime;
+    for (const [a, s] of tracked) if (s.run) a.currentTime = now - s.start;
+  }
+  function sync() {
+    if (betaLayoutOn() && !scan) {
+      adopt();
+      scan = setInterval(adopt, 1000);
+      tick = setInterval(step, 1000 / 30);
+    } else if (!betaLayoutOn() && scan) {
+      clearInterval(scan); clearInterval(tick); scan = tick = 0;
+      for (const a of tracked.keys()) a.play();
+      tracked.clear();
+    } else if (scan) refresh();
+  }
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  sync();
+})();
+
 /** Beta: fold a panel back up into its button, then run hide(). */
 function popClose(panel, hide) {
   if (!panel || scMotionOff() || panel.classList.contains('hidden') || panel._scQuiet) { panel && (panel._scQuiet = false); hide(); return; }
@@ -6960,7 +7305,7 @@ function popClose(panel, hide) {
   panel.classList.remove('sc-pop');
   panel.classList.add('sc-pop-out');
   clearTimeout(panel._popOutTimer);
-  panel._popOutTimer = setTimeout(() => { panel.classList.remove('sc-pop-out'); hide(); }, 190);
+  panel._popOutTimer = setTimeout(() => { panel.classList.remove('sc-pop-out'); hide(); }, 170);
 }
 
 // ---------- Beta: floating panels (live chat, admin panel) ----------
@@ -6974,13 +7319,17 @@ const SC_SPRING = 'cubic-bezier(.34,1.56,.64,1)';
 const SC_FLOATERS = '.sc-menu, .sc-emoji, .people-menu, .fr-menu';
 const SC_FOLLOW_IDS = ['confirm-modal', 'report-modal', 'mod-viewer'];
 const SC_POP_SVG = {
-  out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
-  dock: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3h-8v2h8v14H5v-8H3v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM10 12V10H6.41l5.3-5.29-1.42-1.42L5 8.59V5H3v7h7z"/></svg>',
+  out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7z"/><path class="pb-arrow" d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
+  dock: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3h-8v2h8v14H5v-8H3v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><path class="pb-arrow" d="M10 12V10H6.41l5.3-5.29-1.42-1.42L5 8.59V5H3v7h7z"/></svg>',
 };
 
 function scFloatPaintBtn(f) {
-  f.btn.innerHTML = f.win ? SC_POP_SVG.dock : SC_POP_SVG.out;
-  f.btn.title = f.win ? 'Dock back into SolarClient' : 'Pop out into its own window';
+  const dock = !!f.win;
+  const swapped = f.btn.classList.contains('dock') !== dock && !!f.btn.firstChild;
+  f.btn.innerHTML = dock ? SC_POP_SVG.dock : SC_POP_SVG.out;
+  f.btn.classList.toggle('dock', dock);
+  if (swapped) f.btn.firstChild.classList.add('pb-in');
+  f.btn.title = dock ? 'Dock back into SolarClient' : 'Pop out into its own window';
   f.btn.setAttribute('aria-label', f.btn.title);
 }
 
@@ -6999,13 +7348,23 @@ function scFloatAdd(key, o) {
     if (f.win) scDock(key);
     else scPopOut(key, { side: 'right' });
   });
-  // While it has its own window, the top-bar button just brings that forward.
+  // While it has its own window, the top-bar button closes that window and
+  // the panel goes back home; the next click opens it inside the launcher.
   o.chip.addEventListener('click', (e) => {
     if (!f.win) return;
     e.stopImmediatePropagation();
-    try { f.win.focus(); } catch { /* closed */ }
+    scDock(key, { shut: true });
   }, true);
   return f;
+}
+
+/** Runs fn at most once a frame, with the newest event. flush() runs a pending call now. */
+function scPerFrame(fn) {
+  let ev = null, id = 0;
+  const run = () => { id = 0; const e = ev; ev = null; if (e) fn(e); };
+  const wrapped = (e) => { ev = e; if (!id) id = requestAnimationFrame(run); };
+  wrapped.flush = () => { if (id) { cancelAnimationFrame(id); run(); } };
+  return wrapped;
 }
 
 /** Where a floating panel is headed (its resting spot, ignoring any glide in progress). */
@@ -7018,15 +7377,58 @@ const scOverlap = (a, b, pad = 0) => Math.max(0, Math.min(a.right, b.right) - Ma
   * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) + pad);
 
 /**
+ * The closest spot to (x, y) where a w×h box is fully on screen and clear of
+ * every rect in `avoid`: right next to one of them first (14px apart, or 4px
+ * when that's what fits), otherwise anywhere on a 24px grid. Sideways moves
+ * read as "out of the way", so vertical distance counts a little more.
+ */
+function scFreeSpot(x, y, w, h, avoid) {
+  const minX = 8, maxX = window.innerWidth - w - 8, minY = 40, maxY = window.innerHeight - h - 8;
+  if (maxX < minX || maxY < minY) return null;
+  const cx = (v) => Math.max(minX, Math.min(v, maxX)), cy = (v) => Math.max(minY, Math.min(v, maxY));
+  const clear = (sx, sy) => avoid.every((r) => sx + w + 4 <= r.left || sx >= r.right + 4 || sy + h + 4 <= r.top || sy >= r.bottom + 4);
+  const spots = [];
+  for (const r of avoid) {
+    for (const g of [14, 4]) {
+      spots.push([r.right + g, cy(y)], [r.left - g - w, cy(y)], [cx(x), r.bottom + g], [cx(x), r.top - g - h]);
+    }
+  }
+  for (let gx = minX; gx <= maxX + 23; gx += 24) for (let gy = minY; gy <= maxY + 23; gy += 24) spots.push([cx(gx), cy(gy)]);
+  let best = null, bestCost = Infinity;
+  for (const [sx, sy] of spots) {
+    if (sx < minX || sx > maxX || sy < minY || sy > maxY || !clear(sx, sy)) continue;
+    const c = Math.hypot(sx - x, (sy - y) * 1.25);
+    if (c < bestCost) { bestCost = c; best = { x: sx, y: sy }; }
+  }
+  return best;
+}
+
+const scFloatOthers = (f) => [...scFloat.values()].filter((o) => o !== f && !o.win && o.isOpen());
+// html.sc-moving while a panel is dragged or resized: the glass skips its refraction pass (see style.css).
+const SC_MOVERS = ['live-chat', 'online-pop', 'mod-modal'];
+const scMovingObs = new MutationObserver(() => {
+  document.documentElement.classList.toggle('sc-moving', SC_MOVERS.some((id) => /\b(dragging|resizing)\b/.test(document.getElementById(id)?.className || '')));
+});
+for (const id of SC_MOVERS) {
+  const n = document.getElementById(id);
+  if (n) scMovingObs.observe(n, { attributes: true, attributeFilter: ['class'] });
+}
+// A smaller window can push panels onto each other; once the resize settles, sort them out again.
+let scFloatResizeT = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(scFloatResizeT);
+  scFloatResizeT = setTimeout(() => { for (const f of scFloat.values()) scFloatFit(f); }, 200);
+});
+
+/**
  * Slide any other open panel out from under this one, to the closest spot
- * beside, above or below it that's on screen and clear of every other
- * panel. Re-aiming mid-glide starts from wherever it is, so it never snaps.
+ * that's on screen and clear of every panel. Re-aiming mid-glide starts from
+ * wherever it is, so it never snaps.
  */
 function scFloatBump(f, { force = false } = {}) {
   if (!betaLayoutOn() || f.win || !f.isOpen()) return;
   const a = f.panel.getBoundingClientRect();
-  const gap = 14, W = window.innerWidth, H = window.innerHeight;
-  const others = [...scFloat.values()].filter((o) => o !== f && !o.win && o.isOpen());
+  const others = scFloatOthers(f);
   for (const o of others) {
     const b = scFloatRect(o);
     if (!b.width) continue;
@@ -7034,31 +7436,42 @@ function scFloatBump(f, { force = false } = {}) {
     const hitY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
     // Grazing contact while dragging isn't worth moving for; on drop any overlap is.
     if (hit <= 0 || hitY <= 0 || (!force && Math.min(hit, hitY) < 18)) continue;
-    const clampY = (y) => Math.max(40, Math.min(y, H - b.height - 8));
-    const clampX = (x) => Math.max(8, Math.min(x, W - b.width - 8));
-    // Against a wall the gap can shrink to 4px rather than sending it across the screen.
-    const tuck = (want, tight, lo, hi) => (want < lo && tight >= lo ? lo : want > hi && tight <= hi ? hi : want);
-    const spots = [
-      { x: tuck(a.right + gap, a.right + 4, 8, W - b.width - 8), y: clampY(b.top) },
-      { x: tuck(a.left - gap - b.width, a.left - 4 - b.width, 8, W - b.width - 8), y: clampY(b.top) },
-      { x: clampX(b.left), y: tuck(a.bottom + gap, a.bottom + 4, 40, H - b.height - 8) },
-      { x: clampX(b.left), y: tuck(a.top - gap - b.height, a.top - 4 - b.height, 40, H - b.height - 8) },
-    ];
-    const box = (s) => ({ left: s.x, top: s.y, right: s.x + b.width, bottom: s.y + b.height });
-    const onScreen = (s) => s.x >= 8 && s.x + b.width <= W - 8 && s.y >= 40 && s.y + b.height <= H - 8;
-    const blocked = (s) => others.some((p) => p !== o && scOverlap(box(s), scFloatRect(p)) > 0);
-    // Sideways reads as "out of the way"; vertical hops cost a little more.
-    const cost = (s, i) => Math.hypot(s.x - b.left, (s.y - b.top) * 1.25) + (i >= 2 ? 40 : 0);
-    let best = spots.map((s, i) => ({ s, c: cost(s, i) })).filter(({ s }) => onScreen(s) && !blocked(s))
-      .sort((p, q) => p.c - q.c)[0]?.s;
-    if (!best) {
-      // Nowhere fully clear: pick the edge that leaves the least overlap.
-      best = [{ x: 8, y: clampY(b.top) }, { x: W - b.width - 8, y: clampY(b.top) }]
-        .sort((p, q) => scOverlap(box(p), a) - scOverlap(box(q), a))[0];
-    }
-    if (Math.abs(best.x - b.left) < 2 && Math.abs(best.y - b.top) < 2) continue;
+    const best = scFreeSpot(b.left, b.top, b.width, b.height, [a, ...others.filter((p) => p !== o).map(scFloatRect)]);
+    if (!best || (Math.abs(best.x - b.left) < 2 && Math.abs(best.y - b.top) < 2)) continue;
     scFloatGlide(o, best.x, best.y);
   }
+}
+
+/** If this panel sits on top of another one, move it to the nearest clear spot. */
+function scFloatFit(f, { glide = true } = {}) {
+  if (!betaLayoutOn() || f.win || !f.isOpen()) return;
+  const a = scFloatRect(f);
+  const avoid = scFloatOthers(f).map(scFloatRect).filter((r) => r.width);
+  if (!a.width || !avoid.some((r) => scOverlap(a, r) > 0)) return;
+  const best = scFreeSpot(a.left, a.top, a.width, a.height, avoid);
+  if (!best) { scFloatSpread(f, { glide }); return; }
+  if (glide) scFloatGlide(f, best.x, best.y);
+  else f.place(best.x, best.y);
+}
+
+/**
+ * No clear spot anywhere: line every open panel up side by side, in the
+ * order they already sit, each as close to where it was as fits. If they're
+ * too wide for the window together there's nothing to do but overlap.
+ */
+function scFloatSpread(f, { glide = true } = {}) {
+  const all = [f, ...scFloatOthers(f)].map((o) => ({ o, r: scFloatRect(o) })).filter(({ r }) => r.width);
+  const W = window.innerWidth, gap = 8;
+  if (all.reduce((s, p) => s + p.r.width, 0) + gap * (all.length - 1) > W - 16) return;
+  all.sort((p, q) => (p.r.left + p.r.width / 2) - (q.r.left + q.r.width / 2));
+  const xs = all.map((p) => p.r.left);
+  for (let i = 0; i < all.length; i++) xs[i] = Math.max(xs[i], i ? xs[i - 1] + all[i - 1].r.width + gap : 8);
+  for (let i = all.length - 1; i >= 0; i--) xs[i] = Math.min(xs[i], i < all.length - 1 ? xs[i + 1] - gap - all[i].r.width : W - 8 - all[i].r.width);
+  all.forEach(({ o, r }, i) => {
+    if (Math.abs(xs[i] - r.left) < 2) return;
+    if (o === f && !glide) o.place(xs[i], r.top);
+    else scFloatGlide(o, xs[i], r.top);
+  });
 }
 
 function scFloatGlide(o, x, y) {
@@ -7067,8 +7480,9 @@ function scFloatGlide(o, x, y) {
   o.place(x, y);
   const now = o.panel.getBoundingClientRect();
   o.glide = { x: now.left, y: now.top };
-  const done = () => { o.glide = null; o.glideAnim = null; o.save(); };
+  const done = () => { o.glide = null; o.glideAnim = null; o.panel.classList.remove('sc-gliding'); o.save(); };
   if (scMotionOff()) { done(); return; }
+  o.panel.classList.add('sc-gliding');
   const dx = seen.left - now.left, dy = seen.top - now.top;
   const anim = o.panel.animate(
     [{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }],
@@ -7087,7 +7501,7 @@ function scFloatDrag(f, ev, want) {
   if (f.noPop) return;
   const W = window.innerWidth, H = window.innerHeight;
   let side = null, push = 0;
-  for (const [s, p] of [['right', want.x + want.w - (W - 8)], ['left', 8 - want.x], ['bottom', (ev.clientY - (H - 4)) * 2.5]]) {
+  for (const [s, p] of [['right', want.x + want.w - (W - 8)], ['left', 8 - want.x], ['bottom', want.y + want.h - (H - 8)]]) {
     if (p > push) { side = s; push = p; }
   }
   if (!side || push < 6) { scEdgeHide(f); return; }
@@ -7127,13 +7541,74 @@ function scFloatDrop(f, ev, grab) {
   if (!f) return false;
   const edge = f.edge;
   if (!edge?.armed) {
+    if (!scMotionOff()) f.panel.animate([{ scale: '1.02' }, { scale: '0.995', offset: 0.55 }, { scale: '1' }], { duration: 360, easing: 'cubic-bezier(.3,.7,.3,1)' });
     if (!f.noPop) scEdgeHide(f);
     scFloatBump(f, { force: true });
+    // Whatever couldn't make room, this one moves off it instead: panels never stack.
+    scFloatFit(f);
     return false;
   }
   f.edge = null;
   scPopOut(f.key, { side: edge.side, ev, grab });
   return true;
+}
+
+// Popped out: grab anywhere that isn't a control to move the window; the edges and corners resize it.
+const SC_POP_NOGRAB = `button, a, input, textarea, select, label, [contenteditable], [role="button"], [role="slider"], [role="tab"], video, ${SC_FLOATERS}, .pf-overlay, .sync-modal`;
+function scPopGrab(d, key) {
+  for (const edge of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) {
+    const g = d.createElement('div');
+    g.className = `sc-pop-rz ${edge}`;
+    g.dataset.popRz = edge;
+    d.body.appendChild(g);
+  }
+  d.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || scFloat.get(key)?.win?.document !== d) return;
+    const t = e.target;
+    const rz = t.closest?.('.sc-pop-rz');
+    if (!rz) {
+      if (t.closest?.(SC_POP_NOGRAB)) return;
+      // Its scrollbar scrolls.
+      if (t.clientWidth && (e.offsetX > t.clientWidth || e.offsetY > t.clientHeight)) return;
+    }
+    const id = e.pointerId, sx = e.screenX, sy = e.screenY;
+    const host = scFloat.get(key).host;
+    let on = false;
+    const begin = () => {
+      on = true;
+      // Text re-zooms once on release, not every frame of the resize.
+      if (rz) host.classList.add('resizing');
+      try { t.setPointerCapture(id); } catch { /* gone */ }
+      d.getSelection()?.removeAllRanges();
+      d.documentElement.classList.add('sc-grabbing');
+      d.documentElement.classList.toggle('sc-grab-move', !rz);
+      window.nebula.popoutGrab?.({ key, mode: rz ? 'resize' : 'move', edge: rz?.dataset.popRz, sx, sy });
+    };
+    const moveFn = (ev) => { if (!on && Math.hypot(ev.screenX - sx, ev.screenY - sy) > 4) begin(); };
+    const end = () => {
+      d.removeEventListener('pointermove', moveFn, true);
+      d.removeEventListener('pointerup', end, true);
+      d.removeEventListener('pointercancel', end, true);
+      t.removeEventListener('lostpointercapture', end);
+      if (!on) return;
+      on = false;
+      d.documentElement.classList.remove('sc-grabbing', 'sc-grab-move');
+      window.nebula.popoutRelease?.();
+      if (rz) {
+        host.classList.remove('resizing');
+        setTimeout(() => scFloat.get(key)?.panel._scZoom?.(), 30);
+      }
+      // The press that moved the window isn't also a click on whatever it started on.
+      const eat = (ce) => { ce.stopPropagation(); ce.preventDefault(); };
+      d.addEventListener('click', eat, { capture: true, once: true });
+      setTimeout(() => d.removeEventListener('click', eat, { capture: true }), 0);
+    };
+    d.addEventListener('pointermove', moveFn, true);
+    d.addEventListener('pointerup', end, true);
+    d.addEventListener('pointercancel', end, true);
+    t.addEventListener('lostpointercapture', end);
+    if (rz) { e.preventDefault(); begin(); }
+  }, true);
 }
 
 function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
@@ -7208,6 +7683,10 @@ function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
   win.addEventListener('pagehide', () => { if (f.win === win) scDock(key, { gone: true }); });
   clearInterval(f.poll);
   f.poll = setInterval(() => { if (f.win === win && win.closed) scDock(key, { gone: true }); }, 1000);
+  f.popSize = null;
+  win.addEventListener('resize', () => { if (f.win === win) f.popSize = { w: win.innerWidth, h: win.innerHeight }; });
+  scPopGrab(d, key);
+  scDotTips(d);
 
   if (scMotionOff()) { move(); return; }
   const cur = f.panel.style.translate || '0px 0px';
@@ -7220,8 +7699,11 @@ function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
   setTimeout(move, 360);
 }
 
-/** Bring a popped-out panel home. at: where the cursor let go over the launcher. gone: its window was closed. */
-function scDock(key, { at = null, gone = false } = {}) {
+/**
+ * Bring a popped-out panel home. at: where the cursor let go over the launcher.
+ * gone: its window was already closed. shut: close the window and the panel.
+ */
+function scDock(key, { at = null, gone = false, shut = false } = {}) {
   const f = scFloat.get(key);
   if (!f?.win) return;
   const win = f.win;
@@ -7243,10 +7725,19 @@ function scDock(key, { at = null, gone = false } = {}) {
   f.chip.classList.remove('sc-popped');
   scFloatPaintBtn(f);
   if (!gone) { try { win.close(); } catch { /* already gone */ } }
-  if (gone) { f.panel._scQuiet = true; f.close(); return; }
+  // A size picked while it was popped out comes home with it.
+  const size = f.popSize;
+  f.popSize = null;
+  if (gone || shut) {
+    if (size && f.resize) { f.restore(); f.resize(size.w, size.h); f.save(); }
+    f.panel._scQuiet = true; f.close(); return;
+  }
   f.restore();
+  if (size) f.resize?.(size.w, size.h);
   if (at) f.place(at.x - at.ox, at.y - at.oy);
   window.SolarLiquidGlass?.attach(f.panel);
+  scFloatBump(f, { force: true });
+  scFloatFit(f, { glide: false });
   f.save();
   if (!scMotionOff()) {
     f.panel.animate([
@@ -7256,7 +7747,6 @@ function scDock(key, { at = null, gone = false } = {}) {
       { transform: 'none', opacity: 1 },
     ], { duration: 520, easing: 'cubic-bezier(.2,.9,.25,1)' });
   }
-  scFloatBump(f);
   window.focus();
 }
 
@@ -7660,12 +8150,13 @@ for (const id of SC_FOLLOW_IDS) {
     modal.classList.remove('hidden');
     chip.classList.add('open');
     placeBox(boxNow());
+    scFloatFit(modFloat, { glide: false });
     popDown(panel, chip);
     renderAll();
     load();
   }
   const close = () => {
-    if (modFloat.win) { scDock('admin', { gone: true }); return; }
+    if (modFloat.win) { scDock('admin', { shut: true }); return; }
     chip.classList.remove('open');
     popClose(panel, () => modal.classList.add('hidden'));
   };
@@ -7702,11 +8193,12 @@ for (const id of SC_FOLLOW_IDS) {
     const r = panel.getBoundingClientRect();
     const ox = e.clientX - r.left, oy = e.clientY - r.top;
     modal.classList.add('dragging');
-    const move = (ev) => {
+    const move = scPerFrame((ev) => {
       placeBox({ x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
       scFloatDrag(modFloat, ev, { x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
-    };
+    });
     const up = (ev) => {
+      move.flush();
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       modal.classList.remove('dragging');
@@ -7728,7 +8220,7 @@ for (const id of SC_FOLLOW_IDS) {
     modal.classList.add('resizing');
     // Rebuilding the glass lens every frame makes the drag stutter; repaint once at the end.
     window.SolarLiquidGlass?.detach(panel);
-    const move = (ev) => {
+    const move = scPerFrame((ev) => {
       const dx = ev.clientX - sx, dy = ev.clientY - sy;
       const w = Math.max(MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
       const h = Math.max(MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
@@ -7736,13 +8228,17 @@ for (const id of SC_FOLLOW_IDS) {
         width: `${w}px`, height: `${h}px`,
         left: `${east ? r.left : r.right - w}px`, top: `${south ? r.top : r.bottom - h}px`,
       });
-    };
+    });
     const up = () => {
+      move.flush();
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       modal.classList.remove('resizing');
+      panel._scZoom?.();
       window.SolarLiquidGlass?.attach(panel);
       saveBox();
+      scFloatBump(modFloat, { force: true });
+      scFloatFit(modFloat);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -7755,6 +8251,7 @@ for (const id of SC_FOLLOW_IDS) {
     place: (x, y) => placeBox({ x, y, w: panel.offsetWidth, h: panel.offsetHeight }),
     save: saveBox,
     restore: () => placeBox(boxNow()),
+    resize: (w, h) => placeBox({ ...boxNow(), w, h }),
   });
   head.addEventListener('dblclick', (e) => {
     if (e.target.closest('button') || modFloat.win) return;
@@ -8097,6 +8594,63 @@ function renderRunningIndicator() {
   // Keep this as a no-op so existing call sites stay safe.
 }
 
+const OI_ICON = {
+  online: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>',
+  game: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm4-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>',
+};
+const OP_STAT_ICON = {
+  offline: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7z"/></svg>',
+  launcher: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h6v2H8v2h8v-2h-2v-2h6a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 13H4V5h16v11z"/></svg>',
+  hidden: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7a5 5 0 0 1 5 5c0 .65-.13 1.26-.36 1.83l2.92 2.92A11.8 11.8 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16A4.9 4.9 0 0 1 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3zM7.53 9.8l1.55 1.55A2.8 2.8 0 0 0 9 12a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55A5 5 0 0 1 7 12c0-.79.2-1.53.53-2.2zm4.31-.78 3.15 3.15.02-.16a3 3 0 0 0-3-3z"/></svg>',
+};
+
+let oiHidden = null;
+let oiOffline = 0;
+let oiHiddenAsk = false;
+// Hovering a presence dot (online chip, online list, community members) says
+// what it means. Pop-out windows get their own copy via scDotTips(doc).
+const SC_DOT_TIP = '.oi-dot[data-tip], .op-dot[data-tip], .cs-person-dot[data-tip]';
+function scDotTips(doc) {
+  const win = doc.defaultView;
+  let tip = null, on = null, titled = null;
+  const hide = () => {
+    if (!on) return;
+    on = null;
+    tip?.classList.remove('on');
+    if (titled) {
+      if (titled.dataset.title != null) { titled.title = titled.dataset.title; delete titled.dataset.title; }
+      titled = null;
+    }
+  };
+  doc.addEventListener('pointerover', (e) => {
+    const dot = e.target.closest?.(SC_DOT_TIP);
+    if (!dot) { hide(); return; }
+    if (dot === on) return;
+    hide();
+    on = dot;
+    if (!tip || !tip.isConnected) {
+      tip = doc.createElement('div');
+      tip.className = 'oi-tip';
+      doc.body.appendChild(tip);
+    }
+    const mark = dot.querySelector('i') || dot;
+    tip.textContent = dot.dataset.tip;
+    tip.style.setProperty('--dot', win.getComputedStyle(mark).backgroundColor);
+    titled = dot.parentElement?.closest('[title]') || null;
+    if (titled && titled.dataset.title == null) { titled.dataset.title = titled.title; titled.title = ''; }
+    const r = mark.getBoundingClientRect();
+    const below = r.bottom + 40 < win.innerHeight;
+    tip.classList.toggle('above', !below);
+    tip.style.left = `${Math.round(r.left + r.width / 2)}px`;
+    tip.style.top = `${Math.round(below ? r.bottom + 10 : r.top - 10)}px`;
+    win.requestAnimationFrame(() => tip.classList.add('on'));
+  });
+  doc.addEventListener('pointerdown', hide, true);
+  doc.addEventListener('scroll', hide, true);
+  doc.documentElement.addEventListener('pointerleave', hide);
+  win.addEventListener('blur', hide);
+}
+scDotTips(document);
 async function refreshOnlineIndicator() {
   const el = document.getElementById('online-indicator');
   const label = document.getElementById('online-indicator-label');
@@ -8108,11 +8662,27 @@ async function refreshOnlineIndicator() {
   const n = counts?.online;
   if (typeof n === 'number' && n >= 0) {
     el.classList.remove('offline');
-    label.innerHTML = `<b>${n}</b> online`;
-    el.title = "See who's online";
+    // Beta: one button for every count, laid out like a community's Members button; the In game chip is hidden.
+    const g = counts?.inGame;
+    if (betaLayoutOn() && oiHidden == null && !oiHiddenAsk) {
+      oiHiddenAsk = true;
+      window.nebula.onlineList?.().then((d) => { oiHidden = Number(d?.hidden) || 0; oiOffline = Number(d?.offlineTotal) || 0; refreshOnlineIndicator(); })
+        .catch(() => {}).finally(() => { oiHiddenAsk = false; });
+    }
+    const h = Math.min(oiHidden || 0, n);
+    const html = betaLayoutOn() && typeof g === 'number' && g >= 0
+      ? `<span class="oi-stat on">${OI_ICON.online}<b>${n}</b> online</span>`
+        + `<span class="oi-dot game" data-tip="Playing"><i></i>${g}</span>`
+        + `<span class="oi-dot hid" data-tip="Hidden"><i></i>${h}</span>`
+        + `<span class="oi-dot off" data-tip="Offline"><i></i>${oiOffline}</span>`
+      : `<b>${n}</b> online`;
+    if (label.innerHTML !== html) label.innerHTML = html;
+    if (el.dataset.title != null) el.dataset.title = "See who's online";
+    else el.title = "See who's online";
   } else {
     el.classList.add('offline');
-    label.textContent = 'Online —';
+    if (betaLayoutOn()) label.innerHTML = `<span class="oi-stat on">${OI_ICON.online}Online —</span>`;
+    else label.textContent = 'Online —';
     el.title = 'Could not reach SolarClient online';
   }
   if (gEl && gLabel) {
@@ -8139,11 +8709,6 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   let timer = null;
   let view = 'all';
   let sel = -1;
-  const OP_PREFS = 'sc.online.prefs';
-  const opPrefs = () => {
-    try { return { sort: 'role', collapsed: [], ...JSON.parse(localStorage.getItem(OP_PREFS) || '{}') }; } catch { return { sort: 'role', collapsed: [] }; }
-  };
-  const setOpPref = (k, v) => { try { localStorage.setItem(OP_PREFS, JSON.stringify({ ...opPrefs(), [k]: v })); } catch { /* full */ } };
   const isOpen = () => !pop.classList.contains('hidden');
   const ROLE_ORDER = ['owner', 'admin', 'verified', 'solar+'];
   const ROLE_GROUP = { owner: 'Owners', admin: 'Admins', verified: 'Verified', 'solar+': 'Solar+' };
@@ -8176,7 +8741,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
 
   // Beta: drag it by the header, resize from any corner; both are remembered.
   const OP_BOX = 'sc.online.box';
-  const OP_MIN_W = 300, OP_MIN_H = 300;
+  const OP_MIN_W = 380, OP_MIN_H = 300;
   const savedBox = () => {
     try { const b = JSON.parse(localStorage.getItem(OP_BOX) || 'null'); return b && Number.isFinite(b.x) && Number.isFinite(b.y) ? b : null; } catch { return null; }
   };
@@ -8192,7 +8757,8 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   const placeOp = (x, y) => {
     const w = pop.offsetWidth || 340, h = pop.offsetHeight || 400;
     pop.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
-    pop.style.top = `${Math.max(40, Math.min(y, window.innerHeight - Math.min(h, 120)))}px`;
+    // Beta: the bottom edge stops the panel like the sides do, so pushing past it pops out.
+    pop.style.top = `${Math.max(40, Math.min(y, window.innerHeight - (betaLayoutOn() ? h + 8 : Math.min(h, 120))))}px`;
     pop.style.right = 'auto';
   };
   const sizeOp = (w, h) => {
@@ -8218,21 +8784,23 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   }
 
   const opFloat = scFloatAdd('online', {
-    panel: pop, host: pop, chip, noPop: true, isOpen: () => !pop.classList.contains('hidden'),
-    place: placeOp, save: saveBox, restore: () => {}, close: () => close(),
+    panel: pop, host: pop, chip, closeBtn: document.getElementById('online-pop-close'), btnClass: 'sc-hbtn',
+    title: 'SolarClient Online', isOpen: () => !pop.classList.contains('hidden'),
+    place: placeOp, save: saveBox, restore: () => place(), close: () => close(), resize: sizeOp,
   });
   const opHead = pop.querySelector('.op-head');
   opHead.addEventListener('mousedown', (e) => {
-    if (!betaLayoutOn() || e.button !== 0 || e.target.closest('button, input')) return;
+    if (!betaLayoutOn() || e.button !== 0 || e.target.closest('button, input') || opFloat.win) return;
     e.preventDefault();
     const r = pop.getBoundingClientRect();
     const ox = e.clientX - r.left, oy = e.clientY - r.top;
     pop.classList.add('dragging');
-    const move = (ev) => {
+    const move = scPerFrame((ev) => {
       placeOp(ev.clientX - ox, ev.clientY - oy);
       scFloatDrag(opFloat, ev, { x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
-    };
+    });
     const up = (ev) => {
+      move.flush();
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       pop.classList.remove('dragging');
@@ -8243,7 +8811,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     window.addEventListener('mouseup', up);
   });
   opHead.addEventListener('dblclick', (e) => {
-    if (!betaLayoutOn() || e.target.closest('button, input')) return;
+    if (!betaLayoutOn() || e.target.closest('button, input') || opFloat.win) return;
     try { localStorage.removeItem(OP_BOX); } catch { /* ignore */ }
     place();
   });
@@ -8258,7 +8826,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
     pop.classList.add('resizing');
     window.SolarLiquidGlass?.detach(pop);
-    const move = (ev) => {
+    const move = scPerFrame((ev) => {
       const dx = ev.clientX - sx, dy = ev.clientY - sy;
       const w = Math.max(OP_MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
       const h = Math.max(OP_MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
@@ -8268,14 +8836,16 @@ setTimeout(() => refreshOnlineIndicator(), 800);
       pop.style.left = `${east ? r.left : r.right - w}px`;
       pop.style.top = `${south ? r.top : r.bottom - h}px`;
       pop.style.right = 'auto';
-    };
+    });
     const up = () => {
+      move.flush();
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       pop.classList.remove('resizing');
       window.SolarLiquidGlass?.attach(pop);
       saveBox();
       scFloatBump(opFloat, { force: true });
+      scFloatFit(opFloat);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -8293,6 +8863,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     }
     delete list.dataset.painted;
     sub.textContent = `${data.total} online · ${inGame} in game${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+    delete sub.dataset.html;
     const rows = data.people
       .filter(p => !q || p.name.toLowerCase().includes(q))
       .sort((a, b) => (!!b.self - !!a.self) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name));
@@ -8338,14 +8909,18 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   }
 
   function renderBeta(q, inGame) {
-    const prefs = opPrefs();
     const friends = data.people.filter((p) => p.following && p.follower && !p.self).length;
     const bigN = document.getElementById('op-big-n');
     if (bigN.textContent !== String(data.total)) {
       bigN.textContent = String(data.total);
       bigN.classList.remove('bump'); void bigN.offsetWidth; bigN.classList.add('bump');
     }
-    sub.innerHTML = `<span class="op-sub-dot ingame"></span>${inGame} playing <span class="op-sub-dot"></span>${Math.max(0, data.people.length - inGame)} in the launcher${data.hidden ? ` · ${data.hidden} hidden` : ''}`;
+    const chip = (cls, icon, n, label, tip) => `<span class="op-stat ${cls}" title="${tip}">${icon}<b>${n}</b>${label}</span>`;
+    const subHtml = chip('game', OI_ICON.game, inGame, 'playing', 'In Minecraft right now')
+      + chip('launcher', OP_STAT_ICON.launcher, Math.max(0, data.people.length - inGame), 'in launcher', 'In the launcher, not in a game')
+      + (data.hidden ? chip('hid', OP_STAT_ICON.hidden, data.hidden, 'hidden', 'Online but hiding who they are') : '')
+      + (data.offlineTotal ? chip('off', OP_STAT_ICON.offline, data.offlineTotal, 'offline', "Have SolarClient installed, but it's closed") : '');
+    if (sub.dataset.html !== subHtml) { sub.innerHTML = subHtml; sub.dataset.html = subHtml; }
     document.getElementById('op-n-all').textContent = String(data.total);
     document.getElementById('op-n-ingame').textContent = String(inGame);
     document.getElementById('op-n-friends').textContent = String(friends);
@@ -8353,13 +8928,12 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     viewsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
     requestAnimationFrame(moveInk);
     document.getElementById('op-search-x').classList.toggle('hidden', !q);
-    const sorters = {
-      role: (a, b) => (roleRank(a) - roleRank(b)) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name),
-      name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-      status: (a, b) => (!!b.inGame - !!a.inGame) || (roleRank(a) - roleRank(b)) || a.name.localeCompare(b.name),
-    };
-    const rows = data.people.filter(p => (!q || p.name.toLowerCase().includes(q)) && inView(p)).sort(sorters[prefs.sort] || sorters.role);
-    if (!rows.length) {
+    const byRole = (a, b) => (roleRank(a) - roleRank(b)) || (!!b.inGame - !!a.inGame) || a.name.localeCompare(b.name);
+    const rows = data.people.filter(p => (!q || p.name.toLowerCase().includes(q)) && inView(p)).sort(byRole);
+    const offRows = view === 'ingame' ? [] : (data.offline || [])
+      .filter(p => (!q || p.name.toLowerCase().includes(q)) && inView(p))
+      .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    if (!rows.length && !offRows.length) {
       const why = q ? `Nobody called "${escapeHtml(q)}" is online.`
         : view === 'ingame' ? 'Nobody is in a game right now.'
         : view === 'friends' ? 'None of your friends are online. Friends are people you follow who follow you back.'
@@ -8368,10 +8942,8 @@ setTimeout(() => refreshOnlineIndicator(), 800);
       list.innerHTML = `<div class="op-empty"><span class="op-empty-ic">${OP_ICON.profile}</span>${why}</div>`;
       return;
     }
-    const groupOf = (p) => (prefs.sort === 'role' ? (ROLE_ORDER[roleRank(p)] || 'member')
-      : prefs.sort === 'status' ? (p.inGame ? 'playing' : 'launcher') : 'all');
-    const groupName = { ...ROLE_GROUP, member: 'Members', playing: 'Playing Minecraft', launcher: 'In the launcher', all: 'Everyone' };
-    const collapsed = new Set(prefs.collapsed);
+    const groupOf = (p) => ROLE_ORDER[roleRank(p)] || 'member';
+    const groupName = { ...ROLE_GROUP, member: 'Members' };
     const animate = !list.dataset.painted;
     list.dataset.painted = '1';
     let html = '';
@@ -8382,16 +8954,15 @@ setTimeout(() => refreshOnlineIndicator(), 800);
       if (g !== group) {
         group = g;
         const n = rows.filter((x) => groupOf(x) === g).length;
-        html += `<button type="button" class="op-group${collapsed.has(g) ? ' shut' : ''}" data-group="${g}">${OP_ICON.caret}<span>${groupName[g] || 'Members'}</span><em>${n}</em></button>`;
+        html += `<div class="op-group" data-group="${g}"><span>${groupName[g] || 'Members'}</span><em>${n}</em></div>`;
       }
-      if (collapsed.has(g)) continue;
       const key = roleKey(p);
       const icon = ROLE_ICON[key] ? `<svg class="op-badge" viewBox="0 0 24 24" aria-label="${escapeHtml(p.role)}"><title>${escapeHtml(p.role)}</title>${ROLE_ICON[key]}</svg>` : '';
       const friend = p.following && p.follower;
       const follow = p.self || p.following ? ''
         : `<button type="button" class="op-act follow" data-act="follow">${p.follower ? 'Follow back' : 'Follow'}</button>`;
       html += `<div class="op-row${animate ? ' op-in' : ''}" style="--i:${Math.min(i++, 14)}" data-uuid="${escapeHtml(p.uuid)}" data-role="${ROLE_ICON[key] ? key : 'member'}">
-        <span class="op-face-wrap"><img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="op-dot${p.inGame ? ' ingame' : ''}"></i></span>
+        <span class="op-face-wrap"><img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="op-dot${p.inGame ? ' ingame' : ''}" data-tip="${p.inGame ? 'Playing' : 'In the launcher'}"></i></span>
         <div class="op-info"><span class="op-name"><span class="op-nick" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${icon}${p.self ? '<span class="op-you">you</span>' : ''}${friend ? '<span class="op-friend" title="You follow each other">friend</span>' : ''}</span>
         <span class="op-status${p.inGame ? ' ingame' : ''}">${p.inGame ? 'Playing Minecraft' : 'In the launcher'}</span></div>
         <div class="op-tools">${p.self ? '' : `
@@ -8400,6 +8971,25 @@ setTimeout(() => refreshOnlineIndicator(), 800);
           <button type="button" class="op-tool" data-act="menu" title="More">${OP_ICON.more}</button>`}</div>
         ${follow}
       </div>`;
+    }
+    if (offRows.length) {
+      const OFF_SHOWN = 100;
+      html += `<div class="op-group" data-group="offline"><span>Offline</span><em>${offRows.length}</em></div>`;
+      for (const p of offRows.slice(0, OFF_SHOWN)) {
+        const key = roleKey(p);
+        const icon = ROLE_ICON[key] ? `<svg class="op-badge" viewBox="0 0 24 24" aria-label="${escapeHtml(p.role)}"><title>${escapeHtml(p.role)}</title>${ROLE_ICON[key]}</svg>` : '';
+        const friend = p.following && p.follower;
+        html += `<div class="op-row op-off${animate ? ' op-in' : ''}" style="--i:${Math.min(i++, 14)}" data-uuid="${escapeHtml(p.uuid)}" data-role="${ROLE_ICON[key] ? key : 'member'}">
+          <span class="op-face-wrap"><img class="op-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="op-dot off" data-tip="Offline"></i></span>
+          <div class="op-info"><span class="op-name"><span class="op-nick" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>${icon}${friend ? '<span class="op-friend" title="You follow each other">friend</span>' : ''}</span>
+          <span class="op-status off">${p.lastSeen ? `Last online ${scAgo(p.lastSeen)}` : 'Offline'}</span></div>
+          <div class="op-tools">
+            <button type="button" class="op-tool" data-act="profile" title="View profile">${OP_ICON.profile}</button>
+            ${friend ? `<button type="button" class="op-tool" data-act="dm" title="Message">${OP_ICON.dm}</button>` : ''}
+            <button type="button" class="op-tool" data-act="menu" title="More">${OP_ICON.more}</button></div>
+        </div>`;
+      }
+      if (offRows.length > OFF_SHOWN) html += `<div class="op-more">+${offRows.length - OFF_SHOWN} more offline. Search to find someone.</div>`;
     }
     list.innerHTML = html;
     sel = Math.min(sel, list.querySelectorAll('.op-row').length - 1);
@@ -8410,17 +9000,9 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     rowsEl.forEach((r, i) => r.classList.toggle('sel', i === sel));
     rowsEl[sel]?.scrollIntoView({ block: 'nearest' });
   }
-  const personOf = (row) => data?.people.find((p) => p.uuid === row?.dataset.uuid);
+  const personOf = (row) => data && [...data.people, ...(data.offline || [])].find((p) => p.uuid === row?.dataset.uuid);
   list.addEventListener('click', async (e) => {
     if (!pop.classList.contains('op-beta')) return;
-    const g = e.target.closest('.op-group');
-    if (g) {
-      const set = new Set(opPrefs().collapsed);
-      set.has(g.dataset.group) ? set.delete(g.dataset.group) : set.add(g.dataset.group);
-      setOpPref('collapsed', [...set]);
-      render();
-      return;
-    }
     const btn = e.target.closest('[data-act]');
     const p = personOf(e.target.closest('.op-row'));
     if (!btn || !p) return;
@@ -8449,6 +9031,11 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   async function load() {
     try {
       data = await window.nebula.onlineList();
+      if (oiHidden !== (data.hidden || 0) || oiOffline !== (data.offlineTotal || 0)) {
+        oiHidden = data.hidden || 0;
+        oiOffline = data.offlineTotal || 0;
+        refreshOnlineIndicator();
+      }
       render();
     } catch (err) {
       if (!data) {
@@ -8464,19 +9051,21 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     sel = -1;
     const beta = betaLayoutOn();
     pop.classList.toggle('op-beta', beta);
+    pop.querySelector('.op-title').textContent = beta ? 'SolarClient Online' : 'On SolarClient now';
     pop.classList.remove('hidden');
     chip.classList.add('open');
     place();
-    if (beta) { delete list.dataset.painted; popDown(pop, from); }
+    if (beta) { scFloatFit(opFloat, { glide: false }); delete list.dataset.painted; popDown(pop, from); }
     search.value = '';
     if (!data) { sub.textContent = 'Loading…'; list.innerHTML = ''; }
     else if (beta) render();
     load();
     clearInterval(timer);
-    timer = setInterval(() => { if (isOpen() && !document.hidden) load(); }, 15000);
+    timer = setInterval(() => { if (isOpen() && (opFloat.win || !document.hidden)) load(); }, 15000);
     if (beta) setTimeout(() => { if (isOpen()) search.focus({ preventScroll: true }); }, 60);
   }
   function close() {
+    if (opFloat.win) { scDock('online', { shut: true }); return; }
     popClose(pop, () => pop.classList.add('hidden'));
     chip.classList.remove('open');
     clearInterval(timer);
@@ -8498,18 +9087,6 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     delete list.dataset.painted;
     render();
   });
-  document.getElementById('op-sort')?.addEventListener('click', (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const cur = opPrefs().sort;
-    const pick = (s) => () => { setOpPref('sort', s); delete list.dataset.painted; render(); };
-    scMenu(r.right - 180, r.bottom + 6, [
-      ['By role', pick('role'), { check: true, on: cur === 'role' }],
-      ['By name', pick('name'), { check: true, on: cur === 'name' }],
-      ['Playing first', pick('status'), { check: true, on: cur === 'status' }],
-      '-',
-      ['Expand all groups', () => { setOpPref('collapsed', []); render(); }],
-    ], { title: 'Sort players' });
-  });
   document.getElementById('op-search-x')?.addEventListener('click', () => { search.value = ''; render(); search.focus(); });
   search.addEventListener('input', () => { sel = -1; render(); });
   search.addEventListener('keydown', (e) => {
@@ -8530,11 +9107,11 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   });
   list.addEventListener('error', (e) => { if (e.target.matches?.('.op-face')) e.target.style.visibility = 'hidden'; }, true);
   document.addEventListener('mousedown', (e) => {
-    if (!isOpen() || pop.contains(e.target) || chip.contains(e.target) || e.target.closest('.people-menu, .confirm-modal, .modal-scrim, .sc-menu')) return;
-    if (betaLayoutOn() && e.target.closest('#ingame-indicator')) return;
+    if (!isOpen() || opFloat.win || pop.contains(e.target) || chip.contains(e.target) || e.target.closest('.people-menu, .confirm-modal, .modal-scrim, .sc-menu')) return;
+    if (betaLayoutOn() && e.target.closest('#ingame-indicator, #live-chat, #mod-modal .mod-panel')) return;
     close();
   });
-  window.addEventListener('resize', () => { if (isOpen()) { place(); moveInk(); } });
+  window.addEventListener('resize', () => { if (isOpen() && !opFloat.win) { place(); moveInk(); } });
 })();
 
 window.nebula.onStarted(({ launchId, instanceName, accountName, instant }) => {
@@ -9287,13 +9864,15 @@ document.addEventListener('mousemove', (e) => {
   pxX = e.clientX / window.innerWidth - 0.5;
   pxY = e.clientY / window.innerHeight - 0.5;
   if (pxRaf) return;
-  pxRaf = requestAnimationFrame(() => {
+  const apply = () => {
     pxRaf = null;
     for (const t of parallaxTargets) {
       if (!t.el) continue;
       t.el.style.transform = `translate(${(-pxX * t.depth).toFixed(1)}px, ${(-pxY * t.depth).toFixed(1)}px)${t.scale ? ` scale(${t.scale})` : ''}`;
     }
-  });
+  };
+  // Beta: every shift redraws all the glass over it, so cap it at 30fps like the other ambient motion.
+  pxRaf = betaLayoutOn() ? setTimeout(apply, 1000 / 30) : requestAnimationFrame(apply);
 });
 
 document.addEventListener('pointerdown', (e) => {
@@ -11077,7 +11656,9 @@ function renderConversation() {
     const headName = person?.name || frConversation.name;
     head.innerHTML = `<span class="fr-head-name" ${personAttr(frConversation.id, headName)}>${escapeHtml(headName)}</span>${person ? ` · ${escapeHtml(frStatusLabel(person))}` : ''} ${reportFlag(frConversation.id, headName)}`;
     messages = s.dms[frConversation.id] || [];
+    const canCall = (s.friends || []).some(p => p.uuid === frConversation.id);
     actions.innerHTML = `
+      ${canCall ? '<button class="pill-btn call" data-act="call">Call</button>' : ''}
       <button class="pill-btn" data-act="invite-server">Invite to server</button>
       <button class="pill-btn" data-act="clear">Clear chat</button>`;
   } else {
@@ -11399,6 +11980,10 @@ function showPersonMenu(p, anchor) {
 
 async function handleChatAction(act) {
   if (!frConversation) return;
+  if (act === 'call') {
+    window.scMedia?.call({ uuid: frConversation.id, name: frConversation.name });
+    return;
+  }
   try {
     if (act === 'clear') {
       const ok = await showConfirm(
@@ -11916,6 +12501,7 @@ function showPeopleMenu(person, x, y) {
         ['View profile', 'profile'],
         following ? ['Unfollow', 'unfollow'] : ['Follow', 'follow'],
         ['Message', 'dm'],
+        ['Call', 'call'],
         ['Invite to server', 'invite'],
         ['Report', 'report'],
         ['Block', 'block'],
@@ -11950,6 +12536,10 @@ function showPeopleMenu(person, x, y) {
         if (!friend) return needFriend();
         switchView('friends');
         openConversation({ kind: 'dm', id: person.uuid, name: person.name });
+      }
+      if (act === 'call') {
+        if (!friend) return needFriend();
+        window.scMedia?.call({ uuid: person.uuid, name: person.name });
       }
       if (act === 'invite') {
         if (!friend) return needFriend();
@@ -11992,7 +12582,8 @@ function showPeopleMenu(person, x, y) {
     const w = panel.offsetWidth || 360, h = panel.offsetHeight || 400;
     return {
       x: Math.max(8, Math.min(x, window.innerWidth - w - 8)),
-      y: Math.max(40, Math.min(y, window.innerHeight - Math.min(h, 120))),
+      // Beta: the bottom edge stops the panel like the sides do, so pushing past it pops out.
+      y: Math.max(40, Math.min(y, window.innerHeight - (betaLayoutOn() ? h + 8 : Math.min(h, 120)))),
     };
   };
   const placeAt = (x, y) => {
@@ -12014,11 +12605,12 @@ function showPeopleMenu(person, x, y) {
     const r = panel.getBoundingClientRect();
     const ox = e.clientX - r.left, oy = e.clientY - r.top;
     panel.classList.add('dragging');
-    const move = (ev) => {
+    const move = scPerFrame((ev) => {
       placeAt(ev.clientX - ox, ev.clientY - oy);
       scFloatDrag(lcFloat, ev, { x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
-    };
+    });
     const up = (ev) => {
+      move.flush();
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       panel.classList.remove('dragging');
@@ -12064,7 +12656,7 @@ function showPeopleMenu(person, x, y) {
     // Regenerating the glass lens every frame makes the drag stutter;
     // repaint it once when the drag ends.
     window.SolarLiquidGlass?.detach(panel);
-    const move = (ev) => {
+    const move = scPerFrame((ev) => {
       const dx = ev.clientX - sx, dy = ev.clientY - sy;
       const w = Math.max(MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
       const h = Math.max(MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
@@ -12073,13 +12665,17 @@ function showPeopleMenu(person, x, y) {
       panel.style.left = `${east ? r.left : r.right - w}px`;
       panel.style.top = `${south ? r.top : r.bottom - h}px`;
       panel.style.right = 'auto';
-    };
+    });
     const up = () => {
+      move.flush();
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       panel.classList.remove('resizing');
+      panel._scZoom?.();
       window.SolarLiquidGlass?.attach(panel);
       saveLayout();
+      scFloatBump(lcFloat, { force: true });
+      scFloatFit(lcFloat);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -12104,8 +12700,14 @@ function showPeopleMenu(person, x, y) {
   // Up to three faces, then "+N", then the count. Only rebuilt when the
   // room changes, so the faces don't reload on every message.
   function renderViewers() {
-    const count = Math.max(1, state.viewers);
-    const people = Array.isArray(state.people) ? state.people : [];
+    let people = Array.isArray(state.people) ? state.people : [];
+    // Beta: you're in the room while it's open, so your head always leads.
+    const me = String(state.selfId || '').replace(/-/g, '').toLowerCase();
+    if (betaLayoutOn() && me && isOpen()) {
+      const mine = people.find((p) => p.uuid.toLowerCase() === me) || { uuid: me, name: state.selfName || 'You' };
+      people = [mine, ...people.filter((p) => p !== mine)];
+    }
+    const count = Math.max(1, state.viewers, people.length);
     const shown = people.slice(0, 3);
     viewersN.textContent = String(count);
     const key = `${shown.map(p => p.uuid).join(',')}|${count}`;
@@ -12136,18 +12738,7 @@ function showPeopleMenu(person, x, y) {
   }
 
   // ---- beta live chat ----
-  const LC_PREFS_KEY = 'sc.lc.prefs';
   const LC_SEEN_KEY = 'sc.lc.seenAt';
-  const lcPrefs = () => {
-    try { return { compact: false, times: true, ping: true, people: true, ...JSON.parse(localStorage.getItem(LC_PREFS_KEY) || '{}') }; } catch { return { compact: false, times: true, ping: true, people: true }; }
-  };
-  const setLcPref = (k, v) => {
-    try { localStorage.setItem(LC_PREFS_KEY, JSON.stringify({ ...lcPrefs(), [k]: v })); } catch { /* full */ }
-    render();
-  };
-  const searchBar = document.getElementById('lc-searchbar');
-  const searchIn = document.getElementById('lc-search');
-  const searchN = document.getElementById('lc-search-n');
   const jumpBtn = document.getElementById('lc-jump');
   const jumpLabel = document.getElementById('lc-jump-label');
   const replyBar = document.getElementById('lc-replybar');
@@ -12221,22 +12812,17 @@ function showPeopleMenu(person, x, y) {
   jumpBtn.addEventListener('click', () => { list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' }); lcBelow = 0; paintJump(); });
 
   function renderBeta(ready) {
-    const prefs = lcPrefs();
-    panel.classList.toggle('lc-compact', prefs.compact);
-    panel.classList.toggle('lc-times-hover', !prefs.times);
     sub.textContent = !state.signedIn ? 'Sign in to chat'
       : !state.connected ? 'Connecting…'
       : state.available === false ? 'Chat server is offline'
       : 'Messages last 1 hour';
-    const q = searchBar.classList.contains('hidden') ? '' : searchIn.value.trim().toLowerCase();
     const wasBottom = atBottom() || !render.scrolled;
     const prevTop = list.scrollTop;
-    const msgs = state.messages.filter((m) => !q || `${m.name} ${m.text}`.toLowerCase().includes(q));
-    if (q) searchN.textContent = msgs.length ? `${msgs.length} found` : 'No matches';
-    if (!state.messages.length || !msgs.length) {
+    const msgs = state.messages;
+    if (!msgs.length) {
       list.innerHTML = `<div class="lc-empty"><div class="lc-empty-ic">${ICON.reply}</div><b>${
-        q ? 'Nothing matches' : ready ? 'It\'s quiet in here' : 'Live chat is offline'}</b><span>${
-        q ? 'Try another word or name.' : ready ? 'Say hi. Everyone on SolarClient can see live chat.' : 'Live chat opens once you\'re signed in and online.'}</span></div>`;
+        ready ? 'It\'s quiet in here' : 'Live chat is offline'}</b><span>${
+        ready ? 'Say hi. Everyone on SolarClient can see live chat.' : 'Live chat opens once you\'re signed in and online.'}</span></div>`;
       lcSeenIds = new Set(state.messages.map((m) => m.id));
       return;
     }
@@ -12254,7 +12840,7 @@ function showPeopleMenu(person, x, y) {
         dividerDone = true;
         prev = null;
       }
-      const cont = !q && prev && prev.from === m.from && m.at - prev.at < 5 * 60 * 1000;
+      const cont = prev && prev.from === m.from && m.at - prev.at < 5 * 60 * 1000;
       const reply = scParseReply(m.text);
       const body = reply ? reply.body : m.text;
       const mentioned = !mine && scMentionsMe(body, me);
@@ -12329,32 +12915,6 @@ function showPeopleMenu(person, x, y) {
     msgMenu(m, e.clientX, e.clientY);
   }, true);
 
-  const openSearch = (on) => {
-    searchBar.classList.toggle('hidden', !on);
-    if (on) { searchIn.focus(); searchIn.select(); } else { searchIn.value = ''; searchN.textContent = ''; }
-    render();
-  };
-  document.getElementById('lc-search-btn').addEventListener('click', () => openSearch(searchBar.classList.contains('hidden')));
-  document.getElementById('lc-search-x').addEventListener('click', () => openSearch(false));
-  searchIn.addEventListener('input', () => render());
-  searchIn.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); openSearch(false); input.focus(); } });
-  panel.addEventListener('keydown', (e) => {
-    if (!betaLayoutOn()) return;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openSearch(true); }
-  });
-  document.getElementById('lc-settings-btn').addEventListener('click', (e) => {
-    const r = scRect(e.currentTarget);
-    const p = lcPrefs();
-    scMenu(r.right - 220, r.bottom + 6, [
-      ['Compact messages', () => setLcPref('compact', !p.compact), { check: true, on: p.compact }],
-      ['Always show times', () => setLcPref('times', !p.times), { check: true, on: p.times }],
-      ['Sound when mentioned', () => setLcPref('ping', !p.ping), { check: true, on: p.ping }],
-      '-',
-      ...(lcFloat.win ? [] : [['Reset size and position', () => head.dispatchEvent(new MouseEvent('dblclick'))]]),
-      [lcFloat.win ? 'Dock back into SolarClient' : 'Pop out into its own window', () => (lcFloat.win ? scDock('chat') : scPopOut('chat'))],
-      ['Chat rules', () => panel.querySelector('[data-open-rules]')?.click()],
-    ], { title: 'Live chat' });
-  });
   document.getElementById('lc-emoji-btn').addEventListener('click', (e) => {
     if (input.disabled) return;
     scEmojiPicker(e.currentTarget, (em) => scInsert(input, em));
@@ -12429,6 +12989,7 @@ function showPeopleMenu(person, x, y) {
     panel.classList.remove('hidden');
     restoreSize();
     restorePos();
+    scFloatFit(lcFloat, { glide: false });
     popDown(panel, chip);
     chip.classList.add('open');
     lcUnreadFrom = Number(localStorage.getItem(LC_SEEN_KEY) || 0);
@@ -12445,7 +13006,7 @@ function showPeopleMenu(person, x, y) {
     }).catch(() => {});
   }
   function close() {
-    if (lcFloat.win) { scDock('chat', { gone: true }); return; }
+    if (lcFloat.win) { scDock('chat', { shut: true }); return; }
     try { localStorage.setItem(LC_SEEN_KEY, String(Date.now())); } catch { /* full */ }
     chip.classList.remove('open');
     window.nebula.chatPresence?.(false).catch(() => {});
@@ -12457,11 +13018,37 @@ function showPeopleMenu(person, x, y) {
     place: (x, y) => placeAt(x, y),
     save: saveLayout,
     restore: () => { restoreSize(); restorePos(); },
+    resize: applySize,
   });
 
+  // Slow mode: one message every few seconds (moderators skip it). The main process enforces it too.
+  let slowUntil = 0;
+  let slowTick = null;
+  const compose = sendBtn.closest('.live-chat-compose');
+  function paintSlow() {
+    const left = Math.ceil((slowUntil - Date.now()) / 1000);
+    const on = left > 0;
+    compose?.classList.toggle('lc-slowing', on);
+    sendBtn.textContent = on ? `${left}s` : 'Send';
+    sendBtn.title = on ? `Slow mode: you can send again in ${left}s` : '';
+    if (!on) { clearInterval(slowTick); slowTick = null; }
+  }
+  function startSlow(ms) {
+    slowUntil = Date.now() + ms;
+    compose?.style.setProperty('--slow-ms', `${ms}ms`);
+    compose?.classList.remove('lc-slowing'); void compose?.offsetWidth;
+    clearInterval(slowTick);
+    slowTick = setInterval(paintSlow, 200);
+    paintSlow();
+  }
   async function send() {
     const typed = input.value.trim();
     if (!typed) return;
+    if (Date.now() < slowUntil) {
+      compose?.classList.remove('lc-slow-nudge'); void compose?.offsetWidth; compose?.classList.add('lc-slow-nudge');
+      return;
+    }
+    if (!state.canModerate) startSlow(state.slowMs || 5000);
     let text = typed;
     if (betaLayoutOn()) {
       text = scShortcodes(typed);
@@ -12475,7 +13062,14 @@ function showPeopleMenu(person, x, y) {
     const hadReply = replyTo;
     setReply(null);
     try { await window.nebula.chatSend({ text }); }
-    catch (err) { input.value = typed; if (hadReply) setReply({ name: hadReply.name, text: hadReply.text }); showToast("Couldn't send", err.message, 'error'); }
+    catch (err) {
+      input.value = typed;
+      if (hadReply) setReply({ name: hadReply.name, text: hadReply.text });
+      const msg = String(err.message || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      const wait = /Slow mode.*?(\d+)s/.exec(msg);
+      if (wait) startSlow(Number(wait[1]) * 1000);
+      else { slowUntil = 0; paintSlow(); showToast("Couldn't send", msg, 'error'); }
+    }
   }
 
   chip.addEventListener('click', () => (isOpen() ? close() : open()));
@@ -12510,7 +13104,7 @@ function showPeopleMenu(person, x, y) {
       const pings = (g.messages || []).filter((m) => !before.has(m.id) && m.from !== g.selfId
         && scMentionsMe(scParseReply(m.text)?.body || m.text));
       if (pings.length) {
-        if (lcPrefs().ping && (!isOpen() || document.hidden)) scPing();
+        if (!isOpen() || document.hidden) scPing();
         if (!isOpen()) {
           lcMentions += pings.length;
           badge.textContent = lcMentions > 9 ? '9+' : `@${lcMentions}`;

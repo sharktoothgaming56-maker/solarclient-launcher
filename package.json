@@ -1,8 +1,8 @@
 {
   "name": "solarclient",
   "productName": "SolarClient",
-  "version": "3.22.80-beta.35",
-  "description": "SolarClient 3.22.80-beta.35 — a fast Minecraft launcher",
+  "version": "3.22.80-beta.36",
+  "description": "SolarClient 3.22.80-beta.36 — a fast Minecraft launcher",
   "main": "src/main/main.js",
   "scripts": {
     "start": "node scripts/brand-dev.js && electron .",
@@ -121,7 +121,8 @@
       "createStartMenuShortcut": true,
       "perMachine": false,
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     },
     "compression": "normal",
     "asarUnpack": [

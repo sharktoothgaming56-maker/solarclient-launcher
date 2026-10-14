@@ -390,8 +390,28 @@
     }
   }
 
+  // While the window is being resized every surface changes size every frame, and
+  // rebuilding each displacement map that often is what made resizing crawl. Hold the
+  // repaints (CSS hides the refraction pass meanwhile) and do them once it settles.
+  let settling = false;
+  let settleTimer = 0;
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', () => {
+      if (!settling) {
+        settling = true;
+        document.documentElement.classList.add('lq-settling');
+      }
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        settling = false;
+        document.documentElement.classList.remove('lq-settling');
+        if (paintDirty.size) schedulePaint();
+      }, 160);
+    });
+  }
+
   function schedulePaint() {
-    if (paintQueued) return;
+    if (paintQueued || settling) return;
     paintQueued = true;
     requestAnimationFrame(flushPaints);
   }

@@ -508,9 +508,9 @@ function routePopupsToBrowser(webContents) {
   const isWeb = (u) => /^https?:\/\//i.test(u || '');
 
   webContents.setWindowOpenHandler(({ url, frameName, features }) => {
-    // Beta: live chat / admin panel popped out into their own little window.
+    // Beta: live chat / admin panel / who's online popped out into their own little window.
     // The renderer moves the panel's DOM into it, so it must stay same-process.
-    if ((!url || url === 'about:blank') && /^sc-pop-(chat|admin)$/.test(frameName || '')) {
+    if ((!url || url === 'about:blank') && /^sc-pop-(chat|admin|online)$/.test(frameName || '')) {
       const f = {};
       for (const part of String(features || '').split(',')) {
         const [k, v] = part.split('=').map((s) => s.trim());
@@ -548,7 +548,7 @@ function routePopupsToBrowser(webContents) {
   });
 
   webContents.on('did-create-window', (child, details) => {
-    const pop = /^sc-pop-(chat|admin)$/.exec(details?.frameName || '');
+    const pop = /^sc-pop-(chat|admin|online)$/.exec(details?.frameName || '');
     if (pop) { watchPopout(child, pop[1]); return; }
     let handedOff = false;
     const handOff = (url) => {
@@ -569,37 +569,83 @@ function routePopupsToBrowser(webContents) {
 // A popped-out panel window. Dragging it back over the launcher docks it:
 // the launcher shows where it will land while the cursor is over it, and
 // takes the panel back when the move ends there.
+const popouts = new Map();
+const popToMain = (channel, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+};
+/** Cursor spot over the launcher (and where it holds the pop-out), or null when it's elsewhere. */
+function popOverMain(child) {
+  const { screen } = require('electron');
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || !mainWindow.isVisible()) return null;
+  const p = screen.getCursorScreenPoint();
+  const b = mainWindow.getContentBounds();
+  if (p.x < b.x || p.y < b.y || p.x >= b.x + b.width || p.y >= b.y + b.height) return null;
+  const c = child.getBounds();
+  return { x: p.x - b.x, y: p.y - b.y, ox: p.x - c.x, oy: p.y - c.y };
+}
+
+// Grab-anywhere moving and edge resizing of a pop-out. The window follows the
+// real cursor (polled while the button is held) rather than page events, so it
+// keeps up with the mouse and works even when the cursor outruns the window.
+let popGrabbing = null;
+function popGrabStop(dock) {
+  const g = popGrabbing;
+  if (!g) return;
+  popGrabbing = null;
+  clearInterval(g.timer);
+  if (g.mode !== 'move' || g.child.isDestroyed()) return;
+  const at = dock ? popOverMain(g.child) : null;
+  if (g.over) popToMain('popout:hover', { key: g.key, over: false });
+  if (at) popToMain('popout:dock', { key: g.key, ...at });
+}
+ipcMain.on('popout:grab', (_e, { key, mode, edge, sx, sy } = {}) => {
+  const { screen } = require('electron');
+  const child = popouts.get(key);
+  if (!child || child.isDestroyed()) return;
+  popGrabStop(false);
+  const start = Number.isFinite(sx) && Number.isFinite(sy) ? { x: sx, y: sy } : screen.getCursorScreenPoint();
+  const b = child.getBounds();
+  const [minW, minH] = child.getMinimumSize();
+  const g = { key, child, mode: mode === 'resize' ? 'resize' : 'move', edge: String(edge || ''), over: false, last: '' };
+  g.timer = setInterval(() => {
+    if (child.isDestroyed()) { popGrabStop(false); return; }
+    const p = screen.getCursorScreenPoint();
+    const dx = p.x - start.x, dy = p.y - start.y;
+    let nb;
+    if (g.mode === 'move') {
+      nb = { x: b.x + dx, y: b.y + dy, width: b.width, height: b.height };
+    } else {
+      nb = { ...b };
+      if (g.edge.includes('e')) nb.width = Math.max(minW, b.width + dx);
+      if (g.edge.includes('s')) nb.height = Math.max(minH, b.height + dy);
+      if (g.edge.includes('w')) { nb.width = Math.max(minW, b.width - dx); nb.x = b.x + b.width - nb.width; }
+      if (g.edge.includes('n')) { nb.height = Math.max(minH, b.height - dy); nb.y = b.y + b.height - nb.height; }
+    }
+    const sig = `${nb.x},${nb.y},${nb.width},${nb.height}`;
+    if (sig !== g.last) {
+      g.last = sig;
+      if (g.mode === 'move') child.setPosition(Math.round(nb.x), Math.round(nb.y));
+      else child.setBounds({ x: Math.round(nb.x), y: Math.round(nb.y), width: Math.round(nb.width), height: Math.round(nb.height) });
+    }
+    if (g.mode === 'move') {
+      const over = !!popOverMain(child);
+      if (over !== g.over) { g.over = over; popToMain('popout:hover', { key, over }); }
+    }
+  }, 8);
+  popGrabbing = g;
+});
+ipcMain.on('popout:release', () => popGrabStop(true));
+
 function watchPopout(child, key) {
-  const { shell, screen } = require('electron');
+  const { shell } = require('electron');
+  popouts.set(key, child);
+  child.on('closed', () => {
+    if (popouts.get(key) === child) popouts.delete(key);
+    if (popGrabbing?.child === child) popGrabStop(false);
+  });
   child.webContents.on('will-navigate', (e, url) => {
     e.preventDefault();
     if (/^https?:\/\//i.test(url || '')) shell.openExternal(url).catch(() => {});
-  });
-  const toMain = (channel, payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
-  };
-  const overMain = () => {
-    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || !mainWindow.isVisible()) return null;
-    const p = screen.getCursorScreenPoint();
-    const b = mainWindow.getContentBounds();
-    if (p.x < b.x || p.y < b.y || p.x >= b.x + b.width || p.y >= b.y + b.height) return null;
-    const c = child.getBounds();
-    return { x: p.x - b.x, y: p.y - b.y, ox: p.x - c.x, oy: p.y - c.y };
-  };
-  let moving = false;
-  let over = false;
-  child.on('will-move', () => { moving = true; });
-  child.on('move', () => {
-    if (!moving) return;
-    const now = !!overMain();
-    if (now !== over) { over = now; toMain('popout:hover', { key, over }); }
-  });
-  child.on('moved', () => {
-    if (!moving) return;
-    moving = false;
-    const at = overMain();
-    if (over) { over = false; toMain('popout:hover', { key, over: false }); }
-    if (at) toMain('popout:dock', { key, ...at });
   });
 }
 
@@ -1341,10 +1387,24 @@ let bridge = null;
 let serverHost = null;
 let friendsBridgeWired = false;
 
+// A random id for this install. The uninstaller (build/installer.nsh) posts it
+// to the server, which then stops listing the player as offline.
+function installId() {
+  const file = path.join(app.getPath('userData'), 'install-id');
+  try {
+    const v = fs.readFileSync(file, 'utf8').trim();
+    if (/^[0-9a-f]{32}$/.test(v)) return v;
+  } catch { /* first run */ }
+  const v = require('crypto').randomBytes(16).toString('hex');
+  try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, v); } catch { /* read-only profile */ }
+  return v;
+}
+
 function ensureFriends() {
   if (friends) return friends;
   const { Friends } = require('./friends');
   friends = new Friends(store);
+  friends.installId = installId();
   friends.on('changed', (snap) => broadcast('friends:changed', snap));
   friends.on('notify', (n) => broadcast('friends:notify', n));
   friends.on('connection', (c) => {
@@ -1572,6 +1632,7 @@ const friendsHandlers = {
   'profile:meta': () => ensureFriends().profileMeta(),
   'profile:setMeta': (_e, patch = {}) => ensureFriends().setProfileMeta(patch),
   'communities:deleteChannel': (_e, payload) => ensureFriends().deleteCommunityChannel(payload),
+  'communities:setLayout': (_e, payload) => ensureFriends().setCommunityLayout(payload),
   'communities:leave': (_e, payload) => ensureFriends().leaveCommunity(payload),
   'communities:send': (_e, payload) => ensureFriends().sendCommunityMessage(payload),
   'voice:join': (_e, { id, channelId, muted, deafened } = {}) => ensureFriends().sendVoice({ t: 'voice_join', id, channelId, muted: muted === true, deafened: deafened === true }),
@@ -1631,6 +1692,86 @@ ipcMain.handle('voice:rnnoise', () => {
 ipcMain.on('voice:audio', (_e, frame) => {
   if (!friends || !frame || typeof frame.d !== 'string') return;
   friends.sendVoice({ t: 'voice_audio', d: frame.d, ts: Number(frame.ts) || 0 });
+});
+
+// Calls, screen share and webcam: the media goes straight between players
+// (WebRTC). The server only carries these small setup messages.
+const VOICE_SIGNALS = new Set(['voice_call_ring', 'voice_call_accept', 'voice_call_decline', 'voice_call_busy', 'voice_call_end', 'voice_rtc', 'voice_media']);
+ipcMain.handle('voice:signal', (_e, f) => {
+  if (!friends || !f || !VOICE_SIGNALS.has(f.t)) return false;
+  const out = { t: f.t };
+  if (f.to != null) out.to = String(f.to).slice(0, 40);
+  if (f.callId != null) out.callId = String(f.callId).slice(0, 64);
+  if (f.scope != null) out.scope = String(f.scope).slice(0, 160);
+  if (f.name != null) out.name = String(f.name).slice(0, 16);
+  if (f.t === 'voice_media') { out.screen = f.screen === true; out.cam = f.cam === true; }
+  if (f.t === 'voice_rtc') {
+    const d = JSON.stringify(f.data ?? null);
+    if (d.length > 48 * 1024) return false;
+    out.data = JSON.parse(d);
+  }
+  return friends.sendVoice(out);
+});
+
+// Screen share: the renderer shows its own picker from these, then asks for
+// the stream; the request handler below hands over the picked source.
+let displayPick = null;
+ipcMain.handle('media:sources', async () => {
+  const { desktopCapturer, screen } = require('electron');
+  const displays = screen.getAllDisplays();
+  const list = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 384, height: 216 }, fetchWindowIcons: true });
+  return list.map((s) => {
+    const d = displays.find((x) => String(x.id) === String(s.display_id));
+    return {
+      id: s.id,
+      name: s.name,
+      kind: s.id.startsWith('screen:') ? 'screen' : 'window',
+      thumb: s.thumbnail && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : '',
+      icon: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : '',
+      w: d ? Math.round(d.size.width * d.scaleFactor) : 0,
+      h: d ? Math.round(d.size.height * d.scaleFactor) : 0,
+      hz: d ? Math.round(d.displayFrequency || 0) : 0,
+    };
+  });
+});
+ipcMain.handle('media:pick', (_e, { id, audio } = {}) => {
+  displayPick = { id: String(id || ''), audio: audio === true, at: Date.now() };
+  return true;
+});
+app.whenReady().then(() => {
+  const { session, desktopCapturer } = require('electron');
+  session.defaultSession.setDisplayMediaRequestHandler(async (_req, cb) => {
+    const pick = displayPick;
+    displayPick = null;
+    if (!pick || Date.now() - pick.at > 30000) { cb({}); return; }
+    try {
+      const src = (await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } })).find((s) => s.id === pick.id);
+      if (!src) { cb({}); return; }
+      cb(pick.audio && process.platform === 'win32' ? { video: src, audio: 'loopback' } : { video: src });
+    } catch { cb({}); }
+  });
+});
+
+// Incoming call while the launcher is in the background: flash the taskbar and show a Windows notification.
+let callNote = null;
+ipcMain.handle('call:attention', (_e, { on, title, body } = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  try { callNote?.close(); } catch { /* already gone */ }
+  callNote = null;
+  if (!on) { mainWindow.flashFrame(false); return true; }
+  if (mainWindow.isFocused()) return true;
+  mainWindow.flashFrame(true);
+  const { Notification } = require('electron');
+  if (Notification.isSupported()) {
+    callNote = new Notification({ title: String(title || '').slice(0, 80), body: String(body || '').slice(0, 160), icon: getAppIcon() || undefined, urgency: 'critical', timeoutType: 'never' });
+    callNote.on('click', () => {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    });
+    callNote.show();
+  }
+  return true;
 });
 
 ipcMain.handle('players:lookup', async (_e, { name }) => {

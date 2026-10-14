@@ -29,6 +29,7 @@ const PRESENCE_TTL_MS = 90 * 1000;      // stale heartbeats stop counting
 const HEARTBEAT_MS = 30 * 1000;
 const MESSAGE_TTL_MS = 3 * 24 * 60 * 60 * 1000;   // DMs, groups, community channels
 const GLOBAL_TTL_MS = 60 * 60 * 1000;              // live chat
+const GLOBAL_SLOW_MS = 5 * 1000;                   // live chat slow mode; moderators skip it
 
 const STATUS = { OFFLINE: 'offline', ONLINE: 'online', IN_GAME: 'in_game' };
 
@@ -361,7 +362,9 @@ class Friends extends EventEmitter {
       connected: this.transport.kind === 'socket' && this.transport.connected,
       signedIn: !!this.self,
       selfId: this.self?.id || null,
+      selfName: this.self?.name || null,
       canModerate: this.globalCanModerate,
+      slowMs: GLOBAL_SLOW_MS,
       available: this.globalAvailable !== false,
       viewers: this.globalViewers,
       people: this.globalPeople,
@@ -378,6 +381,9 @@ class Friends extends EventEmitter {
       throw new Error("You're not connected to SolarClient online yet.");
     }
     if (this.globalAvailable === false) throw new Error("Live chat isn't running on the SolarClient server yet.");
+    const wait = (this._globalSentAt || 0) + GLOBAL_SLOW_MS - Date.now();
+    if (wait > 0 && !this.globalCanModerate) throw new Error(`Slow mode is on. Wait ${Math.ceil(wait / 1000)}s before sending again.`);
+    this._globalSentAt = Date.now();
     this.transport.send({ t: 'global_send', text: trimmed });
     return this.globalState();
   }
@@ -611,6 +617,7 @@ class Friends extends EventEmitter {
       name: this.self?.name,
       following: s.following,
       showStatus: s.settings.showOnlineStatus,
+      installId: this.installId || undefined,
     });
   }
 
@@ -870,7 +877,22 @@ class Friends extends EventEmitter {
             following: s2.following.includes(p.uuid),
             follower: s2.followers.includes(p.uuid),
           }));
-        this.emit('online_list', { people, total: Number(m.total) || people.length, hidden: Number(m.hidden) || 0 });
+        // Players who have the launcher installed but closed, newest first.
+        const offline = (Array.isArray(m.offline) ? m.offline : [])
+          .filter(p => p && /^[0-9a-f]{32}$/i.test(String(p.uuid || '')) && !blocked.has(p.uuid))
+          .slice(0, 300)
+          .map(p => ({
+            uuid: String(p.uuid),
+            name: String(p.name || '').slice(0, 16),
+            role: typeof p.role === 'string' ? p.role : 'member',
+            lastSeen: Number(p.lastSeen) || 0,
+            following: s2.following.includes(p.uuid),
+            follower: s2.followers.includes(p.uuid),
+          }));
+        this.emit('online_list', {
+          people, total: Number(m.total) || people.length, hidden: Number(m.hidden) || 0,
+          offline, offlineTotal: Number(m.offlineTotal) || offline.length,
+        });
         break;
       }
       case 'global_viewers': {
@@ -1330,6 +1352,18 @@ class Friends extends EventEmitter {
   deleteCommunityChannel({ id, channelId }) {
     if (!this.transport.connected) throw new Error('Not connected to SolarClient online.');
     this.transport.send({ t: 'community_channel_delete', id, channelId });
+  }
+
+  /** Owner only (the server checks): custom categories plus every channel's category and position. */
+  setCommunityLayout({ id, categories, order }) {
+    if (!this.transport.connected) throw new Error('Not connected to SolarClient online.');
+    const cats = (Array.isArray(categories) ? categories : []).slice(0, 25)
+      .map((c) => ({ id: String(c?.id || '').slice(0, 40), name: String(c?.name || '').trim().slice(0, 32) }))
+      .filter((c) => c.id && c.name);
+    const ord = (Array.isArray(order) ? order : []).slice(0, 200)
+      .map((o) => ({ id: String(o?.id || '').slice(0, 40), cat: o?.cat == null ? null : String(o.cat).slice(0, 40) }))
+      .filter((o) => o.id);
+    this.transport.send({ t: 'community_layout', id, categories: cats, order: ord });
   }
 
   leaveCommunity({ id }) {

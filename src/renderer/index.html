@@ -55,12 +55,12 @@
       <span id="ingame-indicator-label">In game —</span>
     </div>
     <button type="button" class="topbar-chip chat-chip" id="chat-chip" title="Live chat with everyone on SolarClient">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/><g class="ic-cut"><circle cx="7.5" cy="10" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="16.5" cy="10" r="1.5"/></g></svg>
       <span>Live chat</span>
       <span class="chat-chip-badge hidden" id="chat-chip-badge">0</span>
     </button>
     <button type="button" class="topbar-chip mod-chip beta-only hidden" id="mod-chip" title="Admin panel">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/><path class="ic-cut" d="M10.6 15.6 7 12l1.5-1.5 2.1 2.1 4.9-4.9L17 9.2z"/></svg>
       <span>Admin panel</span>
       <span class="chat-chip-badge hidden" id="mod-chip-badge">0</span>
     </button>
@@ -126,7 +126,9 @@
           </div>
         </div>
         <div class="cs-tools">
+          <button type="button" class="cs-tool cs-mem-btn beta-only" id="cs-members" title="Members"></button>
           <button type="button" class="cs-tool" id="cs-settings" title="Community name and picture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.7 1.7 1l.4 2.7h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>Settings</button>
+          <button type="button" class="cs-tool cs-add-btn beta-only" id="cs-add" title="Add a channel or category"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>Add</button>
           <button type="button" class="cs-tool" id="cs-add-text" title="Add a text channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>Text</button>
           <button type="button" class="cs-tool" id="cs-add-voice" title="Add a voice channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>Voice</button>
           <button type="button" class="cs-tool cs-tool-accent" id="cs-invite" title="Invite friends"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2zm9 4c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>Invite</button>
@@ -138,6 +140,7 @@
         <button type="button" class="cs-tool" id="cs-add-go">Add</button>
       </div>
       <div class="cs-pop hidden" id="cs-invite-pop"></div>
+      <div class="cs-pop cs-mem-pop beta-only hidden" id="cs-members-pop"></div>
       <div class="cs-body">
         <div class="cs-channels" id="cs-channels"></div>
         <div class="cs-main" id="cs-main"></div>
@@ -1219,7 +1222,6 @@
       <span class="op-title">On SolarClient now</span>
       <span class="op-sub" id="online-pop-sub">Loading…</span>
     </div>
-    <button type="button" class="sc-hbtn beta-only" id="op-sort" title="Sort" aria-label="Sort"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/></svg></button>
     <button type="button" class="live-chat-x" id="online-pop-close" title="Close" aria-label="Close">&times;</button>
   </div>
   <div class="op-views beta-only" id="online-pop-views" role="tablist">
@@ -1250,20 +1252,12 @@
       <span class="lcv-faces" id="live-chat-faces"></span>
       <span class="lcv-count"><b id="live-chat-viewers-n">0</b> in chat</span>
     </div>
-    <button type="button" class="sc-hbtn beta-only" id="lc-search-btn" title="Search messages (Ctrl+F)" aria-label="Search messages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg></button>
-    <button type="button" class="sc-hbtn beta-only" id="lc-settings-btn" title="Chat settings" aria-label="Chat settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg></button>
     <button type="button" class="live-chat-x" id="live-chat-close" title="Close" aria-label="Close">&times;</button>
   </div>
   <div class="msg-expiry-note lc-note beta-only">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6 3.2 1.9-.9 1.5L11 13.5V7h2v5.6z"/></svg>
     <span>Live chat messages disappear after 1 hour.</span>
     <button type="button" class="note-link" data-open-rules>Rules</button>
-  </div>
-  <div class="lc-searchbar beta-only hidden" id="lc-searchbar">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
-    <input id="lc-search" placeholder="Search live chat" maxlength="40" autocomplete="off" spellcheck="false">
-    <span class="lc-search-n" id="lc-search-n"></span>
-    <button type="button" class="sc-hbtn" id="lc-search-x" title="Close search" aria-label="Close search">&times;</button>
   </div>
   <div class="live-chat-list" id="live-chat-list"></div>
   <div class="live-chat-compose">
@@ -1344,6 +1338,7 @@ window.NEBULA_BACKGROUNDS = {
 <script src="liquid-glass-engine.js"></script>
 <script src="legal.js"></script>
 <script src="renderer.js"></script>
+<script src="calls.js"></script>
 <!-- backgrounds.js / skin2d.js / skin3d.js load after first paint -->
 <!-- What's New modal -->
 <div class="whatsnew-modal" id="whatsnew-modal">

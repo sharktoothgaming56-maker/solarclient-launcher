@@ -72,6 +72,7 @@ const api = {
   profileMeta: () => ipcRenderer.invoke('profile:meta'),
   profileSetMeta: (d) => ipcRenderer.invoke('profile:setMeta', d),
   communitiesDeleteChannel: (d) => ipcRenderer.invoke('communities:deleteChannel', d),
+  communitiesSetLayout: (d) => ipcRenderer.invoke('communities:setLayout', d),
   communitiesLeave: (d) => ipcRenderer.invoke('communities:leave', d),
   communitiesSend: (d) => ipcRenderer.invoke('communities:send', d),
   voiceJoin: (d) => ipcRenderer.invoke('voice:join', d),
@@ -79,6 +80,10 @@ const api = {
   voiceState: (d) => ipcRenderer.invoke('voice:state', d),
   voiceRnnoise: () => ipcRenderer.invoke('voice:rnnoise'),
   voiceAudio: (frame) => ipcRenderer.send('voice:audio', frame),
+  voiceSignal: (frame) => ipcRenderer.invoke('voice:signal', frame),
+  mediaSources: () => ipcRenderer.invoke('media:sources'),
+  mediaPick: (d) => ipcRenderer.invoke('media:pick', d),
+  callAttention: (d) => ipcRenderer.invoke('call:attention', d),
   onVoiceEvent: (cb) => ipcRenderer.on('voice:event', (_e, m) => cb(m)),
 
   // servers
@@ -117,6 +122,8 @@ const api = {
   onModEvent: (cb) => ipcRenderer.on('mod:event', (_e, p) => cb(p)),
   onPopoutHover: (cb) => ipcRenderer.on('popout:hover', (_e, p) => cb(p)),
   onPopoutDock: (cb) => ipcRenderer.on('popout:dock', (_e, p) => cb(p)),
+  popoutGrab: (p) => ipcRenderer.send('popout:grab', p),
+  popoutRelease: () => ipcRenderer.send('popout:release'),
   modFile: (d) => ipcRenderer.invoke('mod:file', d),
   reportSend: (d) => ipcRenderer.invoke('report:send', d),
 
