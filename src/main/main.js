@@ -507,7 +507,30 @@ function routePopupsToBrowser(webContents) {
   const { shell } = require('electron');
   const isWeb = (u) => /^https?:\/\//i.test(u || '');
 
-  webContents.setWindowOpenHandler(({ url }) => {
+  webContents.setWindowOpenHandler(({ url, frameName, features }) => {
+    // Beta: live chat / admin panel popped out into their own little window.
+    // The renderer moves the panel's DOM into it, so it must stay same-process.
+    if ((!url || url === 'about:blank') && /^sc-pop-(chat|admin)$/.test(frameName || '')) {
+      const f = {};
+      for (const part of String(features || '').split(',')) {
+        const [k, v] = part.split('=').map((s) => s.trim());
+        if (k) f[k.toLowerCase()] = Number(v);
+      }
+      const width = Math.round(Math.max(330, Math.min(Number.isFinite(f.width) ? f.width : 420, 1600)));
+      const height = Math.round(Math.max(320, Math.min(Number.isFinite(f.height) ? f.height : 560, 1400)));
+      const opts = {
+        width, height, minWidth: 330, minHeight: 320,
+        frame: false, show: true, maximizable: false, fullscreenable: false,
+        backgroundColor: '#15112a', icon: APP_ICON, title: 'SolarClient',
+      };
+      if (Number.isFinite(f.left) && Number.isFinite(f.top)) {
+        const { screen } = require('electron');
+        const wa = screen.getDisplayNearestPoint({ x: Math.round(f.left + width / 2), y: Math.round(f.top + 20) }).workArea;
+        opts.x = Math.round(Math.max(wa.x, Math.min(f.left, wa.x + wa.width - width)));
+        opts.y = Math.round(Math.max(wa.y, Math.min(f.top, wa.y + wa.height - height)));
+      }
+      return { action: 'allow', overrideBrowserWindowOptions: opts };
+    }
     if (isWeb(url)) {
       shell.openExternal(url).catch(() => {});
       return { action: 'deny' };
@@ -524,7 +547,9 @@ function routePopupsToBrowser(webContents) {
     return { action: 'deny' };
   });
 
-  webContents.on('did-create-window', (child) => {
+  webContents.on('did-create-window', (child, details) => {
+    const pop = /^sc-pop-(chat|admin)$/.exec(details?.frameName || '');
+    if (pop) { watchPopout(child, pop[1]); return; }
     let handedOff = false;
     const handOff = (url) => {
       if (handedOff || !isWeb(url)) return;
@@ -538,6 +563,43 @@ function routePopupsToBrowser(webContents) {
     });
     // A blank window that never navigates anywhere is thrown away.
     setTimeout(() => { if (!child.isDestroyed()) child.destroy(); }, 10_000);
+  });
+}
+
+// A popped-out panel window. Dragging it back over the launcher docks it:
+// the launcher shows where it will land while the cursor is over it, and
+// takes the panel back when the move ends there.
+function watchPopout(child, key) {
+  const { shell, screen } = require('electron');
+  child.webContents.on('will-navigate', (e, url) => {
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url || '')) shell.openExternal(url).catch(() => {});
+  });
+  const toMain = (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+  };
+  const overMain = () => {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || !mainWindow.isVisible()) return null;
+    const p = screen.getCursorScreenPoint();
+    const b = mainWindow.getContentBounds();
+    if (p.x < b.x || p.y < b.y || p.x >= b.x + b.width || p.y >= b.y + b.height) return null;
+    const c = child.getBounds();
+    return { x: p.x - b.x, y: p.y - b.y, ox: p.x - c.x, oy: p.y - c.y };
+  };
+  let moving = false;
+  let over = false;
+  child.on('will-move', () => { moving = true; });
+  child.on('move', () => {
+    if (!moving) return;
+    const now = !!overMain();
+    if (now !== over) { over = now; toMain('popout:hover', { key, over }); }
+  });
+  child.on('moved', () => {
+    if (!moving) return;
+    moving = false;
+    const at = overMain();
+    if (over) { over = false; toMain('popout:hover', { key, over: false }); }
+    if (at) toMain('popout:dock', { key, ...at });
   });
 }
 

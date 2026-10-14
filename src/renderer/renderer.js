@@ -1,3 +1,23 @@
+// Delegated click handlers on `document` (links, names, report flags,
+// spoilers…) are replayed in panels popped out into their own window, so
+// the ones registered while this file first runs are kept here.
+const SC_DOC_CLICKS = [];
+(() => {
+  const types = new Set(['click', 'contextmenu', 'dblclick', 'auxclick']);
+  document.addEventListener = function (type, fn, opts) {
+    if (types.has(type)) SC_DOC_CLICKS.push([type, fn, opts]);
+    return EventTarget.prototype.addEventListener.call(this, type, fn, opts);
+  };
+  setTimeout(() => { delete document.addEventListener; }, 0);
+})();
+
+/** Documents of popped-out panel windows, and whichever window was last used. */
+const scPop = { docs: new Set(), active: document };
+function scActiveDoc() {
+  const d = scPop.active;
+  return d !== document && scPop.docs.has(d) && !d.defaultView?.closed ? d : document;
+}
+
 // ---------- window controls ----------
 document.getElementById('win-min').addEventListener('click', () => window.nebula.minimize());
 document.getElementById('win-max').addEventListener('click', () => window.nebula.maximize());
@@ -53,6 +73,7 @@ const defaultTheme = {
   monBgSync: true,
   monBg: 'nebula',
   launchStyle: 'purple', // beta only: 'purple' | 'glass'
+  uiMotion: true,        // beta only: pop-downs, nav and button animations
 };
 let theme = { ...defaultTheme };
 try { theme = { ...defaultTheme, ...JSON.parse(localStorage.getItem('nebula-theme') || '{}') }; } catch { /* fresh */ }
@@ -156,6 +177,7 @@ function applyTheme() {
   document.querySelector('.bg-scene-dark').style.opacity = bg.kind === 'scene' ? (theme.sceneDim / 100) : 0;
 
   document.body.classList.toggle('no-anim', !theme.animations);
+  document.body.classList.toggle('no-ui-motion', document.body.classList.contains('beta-layout') && theme.uiMotion === false);
 
   // PERF: this used to only set display:none on the canvas, which hides the
   // pixels but leaves the requestAnimationFrame loop running forever burning
@@ -500,6 +522,7 @@ function renderCustomizeNow() {
   document.getElementById('glass-alpha').value = theme.alpha;
   document.getElementById('glass-alpha-label').textContent = theme.alpha;
   document.getElementById('anim-toggle').checked = theme.animations;
+  document.getElementById('ui-motion-toggle').checked = theme.uiMotion !== false;
   document.getElementById('particles-toggle').checked = theme.particles;
   document.getElementById('parallax-toggle').checked = theme.parallax;
   document.getElementById('trail-toggle').checked = theme.trail;
@@ -558,6 +581,7 @@ document.getElementById('glass-alpha').addEventListener('input', (e) => {
   saveTheme(); applyTheme();
 });
 document.getElementById('anim-toggle').addEventListener('change', (e) => { theme.animations = e.target.checked; saveTheme(); applyTheme(); });
+document.getElementById('ui-motion-toggle').addEventListener('change', (e) => { theme.uiMotion = e.target.checked; saveTheme(); applyTheme(); });
 document.getElementById('particles-toggle').addEventListener('change', (e) => { theme.particles = e.target.checked; saveTheme(); applyTheme(); });
 document.getElementById('parallax-toggle').addEventListener('change', (e) => { theme.parallax = e.target.checked; saveTheme(); if (!theme.parallax) resetParallax(); });
 document.getElementById('trail-toggle').addEventListener('change', (e) => { theme.trail = e.target.checked; saveTheme(); });
@@ -958,7 +982,7 @@ function paintRange(el) {
 })();
 
 function showToast(title, message, type = 'info') {
-  const container = document.getElementById('toast-container');
+  const container = scActiveDoc().getElementById('toast-container') || document.getElementById('toast-container');
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
   el.innerHTML = `<div class="toast-title">${title}</div>${message ? `<div class="toast-msg">${message}</div>` : ''}`;
@@ -1076,7 +1100,7 @@ function navInk() {
 }
 window.addEventListener('resize', () => navInk());
 function navFx(btn, view, e) {
-  if (!betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (scMotionOff()) return;
   const r = btn.getBoundingClientRect();
   const wrap = document.createElement('span');
   wrap.className = 'nav-ripple-wrap';
@@ -1816,11 +1840,13 @@ let csSaveTimer = 0;
 function csState() {
   if (!csStore) {
     try { csStore = JSON.parse(localStorage.getItem(CS_STORE) || '{}') || {}; } catch { csStore = {}; }
-    for (const k of ['read', 'mute', 'notify', 'drafts', 'collapsed', 'sent']) {
+    for (const k of ['read', 'mute', 'notify', 'drafts', 'collapsed', 'sent', 'nick', 'ignore', 'lastCh']) {
       if (!csStore[k] || typeof csStore[k] !== 'object' || Array.isArray(csStore[k])) csStore[k] = {};
     }
     if (!Array.isArray(csStore.saved)) csStore.saved = [];
-    csStore.prefs = { compact: false, times: true, ping: true, ...(csStore.prefs || {}) };
+    if (!Array.isArray(csStore.pinned)) csStore.pinned = [];
+    csStore.prefs = { compact: false, times: true, ping: true, size: 'm', words: [], ...(csStore.prefs || {}) };
+    if (!Array.isArray(csStore.prefs.words)) csStore.prefs.words = [];
   }
   return csStore;
 }
@@ -1857,10 +1883,24 @@ function csMarkRead(c, ch) {
 }
 function csMentionsMe(m) {
   const me = myName();
-  if (!me) return false;
+  if (!me || csIgnored(m.from)) return false;
   const reply = scParseReply(m.text);
-  return scMentionsMe(reply ? reply.body : m.text, me) || reply?.to?.toLowerCase() === me.toLowerCase();
+  const body = reply ? reply.body : String(m.text || '');
+  return scMentionsMe(body, me) || reply?.to?.toLowerCase() === me.toLowerCase() || csWordHit(body);
 }
+/** Your own alert words count like a mention. */
+function csWordHit(text) {
+  const words = csState().prefs.words;
+  if (!words.length) return false;
+  const low = String(text || '').toLowerCase();
+  return words.some((w) => {
+    const safe = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^\\p{L}\\p{N}_])${safe}($|[^\\p{L}\\p{N}_])`, 'iu').test(low);
+  });
+}
+const csIgnored = (uuid) => !!csState().ignore[normVoiceId(uuid)];
+/** The name you see for someone: your private nickname for them, or their real name. */
+const csName = (uuid, name) => csState().nick[normVoiceId(uuid)] || name || 'Someone';
 const csMuted = (c, ch) => !!csState().mute[msgKey(c.id, ch.id)];
 const csNotifyLevel = (c) => csState().notify[c.id] || 'mentions';
 /** New messages since you last looked: { n, at } where at counts the ones that mention you. */
@@ -1870,7 +1910,7 @@ function csUnread(c, ch) {
   let n = 0;
   let at = 0;
   for (const m of csMsgs(c, ch)) {
-    if ((m.at || 0) <= read || csIsMine(m)) continue;
+    if ((m.at || 0) <= read || csIsMine(m) || csIgnored(m.from)) continue;
     n++;
     if (csMentionsMe(m)) at++;
   }
@@ -1892,6 +1932,17 @@ function csMarkCommunityRead(c) {
   renderCommunities();
   if (openCommunityId === c.id) renderCommunityStage();
 }
+function csMarkAllRead() {
+  for (const c of readCommunities()) for (const ch of c.channels || []) if (ch.kind === 'text') csMarkRead(c, ch);
+  csHoldRead = null;
+  renderCommunities();
+  if (openCommunityId) renderCommunityStage();
+  showToast('All caught up', 'Every community is marked as read.', 'success');
+}
+/** Channel whose read marker you moved back by hand; it isn't cleared again until you leave it. */
+let csHoldRead = null;
+const csScrollMem = new Map();
+const csShowIgnored = new Set();
 function csIsSaved(c, chId, m) {
   const id = csMsgId(m);
   return csState().saved.some((s) => s.cid === c.id && s.chid === chId && s.id === id);
@@ -2777,9 +2828,11 @@ function renderCommunities() {
   if (!host) return;
   host.innerHTML = '';
   if (!betaLayoutOn()) return;
-  readCommunities().forEach((c) => {
+  const pinned = csState().pinned;
+  const pinRank = (c) => { const i = pinned.indexOf(c.id); return i < 0 ? Infinity : i; };
+  readCommunities().map((c, i) => [c, i]).sort((a, b) => (pinRank(a[0]) - pinRank(b[0])) || (a[1] - b[1])).forEach(([c]) => {
     const wrap = document.createElement('div');
-    wrap.className = 'rail-comm-wrap';
+    wrap.className = `rail-comm-wrap${pinned.includes(c.id) ? ' pinned' : ''}`;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'rail-comm';
@@ -2852,8 +2905,16 @@ function communityMenu(c, x, y) {
   const level = csNotifyLevel(c);
   const setLevel = (v) => () => { csState().notify[c.id] = v; csSave(); renderCommunities(); };
   const link = communityInviteLink(c);
+  const st = csState();
+  const isPinned = st.pinned.includes(c.id);
   scMenu(x, y, [
     ['Mark as read', () => csMarkCommunityRead(c)],
+    ['Mark every community as read', () => csMarkAllRead(), { hint: 'Shift+Esc' }],
+    [isPinned ? 'Unpin from top' : 'Pin to top', () => {
+      st.pinned = isPinned ? st.pinned.filter((id) => id !== c.id) : [...st.pinned, c.id];
+      csSave();
+      renderCommunities();
+    }],
     ['Invite friends', () => { openCommunityStage(c.id); setTimeout(() => openCommunityInvite(c), 60); }],
     ...(link ? [['Copy invite link', () => csCopy(link, 'Invite link copied')]] : []),
     '-',
@@ -2980,11 +3041,14 @@ function openCommunityStage(communityId, channelId) {
   const channels = community.channels || [];
   const pick = channels.find((ch) => ch.id === channelId)
     || channels.find((ch) => ch.id === openChannelId)
+    || channels.find((ch) => ch.id === csState().lastCh[communityId])
     || channels.find((ch) => ch.kind === 'text')
     || channels[0]
     || null;
   openChannelId = pick ? pick.id : null;
+  if (pick && csState().lastCh[communityId] !== pick.id) { csState().lastCh[communityId] = pick.id; csSave(); }
   if (pick && msgKey(communityId, pick.id) !== prevKey) {
+    csHoldRead = null;
     csUnreadFrom = pick.kind === 'text' ? csReadAt(community, pick) : 0;
     csBelow = 0;
     csSearch = null;
@@ -3076,7 +3140,8 @@ function renderCommunityStage() {
       return `
       <div class="cs-invited cs-person ${on ? 'online' : 'away'}" data-uuid="${escapeHtml(p.uuid)}" data-name="${escapeHtml(p.name)}" style="--i:${stagger++}">
         <span class="cs-person-face-wrap"><img class="cs-person-face" src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><i class="cs-person-dot" title="${on ? 'Online' : 'Offline'}"></i></span>
-        <span class="cs-person-name" ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span>
+        <span class="cs-person-name" ${personAttr(p.uuid, p.name)}>${escapeHtml(csName(p.uuid, p.name))}${st.nick[normVoiceId(p.uuid)] ? `<em class="cs-real-name">${escapeHtml(p.name)}</em>` : ''}</span>
+        ${csIgnored(p.uuid) ? '<span class="cs-person-ignored" title="You ignore their messages">Ignored</span>' : ''}
         ${p.uuid === community.ownerId ? '<span class="cs-person-owner" title="Owner">Owner</span>' : ''}
         ${reportFlag(p.uuid, p.name, { where: `Community: ${community.name}` })}
       </div>`;
@@ -3161,7 +3226,8 @@ function renderCommunityStage() {
     row.addEventListener('contextmenu', (e) => {
       if (e.target.closest('.rflag')) return;
       e.preventDefault();
-      showPeopleMenu({ uuid: row.dataset.uuid, name: row.dataset.name }, e.clientX, e.clientY);
+      e.stopPropagation();
+      csPersonMenu({ uuid: row.dataset.uuid, name: row.dataset.name }, e.clientX, e.clientY);
     });
   });
   const addBar = document.getElementById('cs-addbar');
@@ -3217,6 +3283,10 @@ function renderCommunityStage() {
 
   const paintedKey = `${community.id}:${channel ? channel.id : ''}`;
   const switchedChannel = paintedKey !== csPaintedChannel;
+  const prevBox = document.getElementById('cs-msgs');
+  if (switchedChannel && prevBox && csPaintedChannel) {
+    csScrollMem.set(csPaintedChannel, prevBox.scrollHeight - prevBox.scrollTop - prevBox.clientHeight < 80 ? null : prevBox.scrollTop);
+  }
   csPaintedChannel = paintedKey;
   if (switchedChannel) {
     main.classList.remove('cs-swap');
@@ -3300,6 +3370,8 @@ function renderCommunityStage() {
   const prefs = st.prefs;
   stage.classList.toggle('cs-compact', !!prefs.compact);
   stage.classList.toggle('cs-times-hover', !prefs.times);
+  stage.classList.toggle('cs-size-s', prefs.size === 's');
+  stage.classList.toggle('cs-size-l', prefs.size === 'l');
   const msgs = csMsgs(community, channel);
   const draftKey = msgKey(community.id, channel.id);
   const oldInput = document.getElementById('cs-input');
@@ -3332,10 +3404,14 @@ function renderCommunityStage() {
       prev = null;
     }
     const mine = normVoiceId(m.from) === me;
-    if (!q && !dividerDone && csUnreadFrom && (m.at || 0) > csUnreadFrom && !mine) {
+    if (!q && !dividerDone && csUnreadFrom && (m.at || 0) > csUnreadFrom && !mine && !csIgnored(m.from)) {
       out += '<div class="cs-new-line"><span>New</span></div>';
       dividerDone = true;
       prev = null;
+    }
+    if (csIgnored(m.from) && !csShowIgnored.has(mid)) {
+      prev = null;
+      return `${out}<div class="cs-msg cs-ignored" data-mid="${escapeHtml(mid)}"><span>Message from someone you ignore</span><button type="button" data-t="unhide">Show</button></div>`;
     }
     const cont = !q && !!(prev && prev.from === m.from && m.at && prev.at && m.at - prev.at < 5 * 60 * 1000);
     let anim = '';
@@ -3356,7 +3432,7 @@ function renderCommunityStage() {
           : `<img class="cs-msg-face" src="${frAvatar(m.from)}" alt="" ${personAttr(m.from, m.name)}>`}
         <div class="cs-msg-body">
           ${reply ? `<button type="button" class="cs-reply-chip" data-jump="${escapeHtml(reply.to)}" data-quote="${escapeHtml(reply.quote)}">${CS_ICON.reply}<b>@${escapeHtml(reply.to)}</b><span>${escapeHtml(reply.quote)}</span></button>` : ''}
-          ${cont ? '' : `<div class="cs-msg-head"><b class="cs-msg-name" ${personAttr(m.from, m.name)}>${escapeHtml(m.name || 'Someone')}</b>${owner && normVoiceId(m.from) === owner ? '<span class="cs-msg-owner" title="Owns this community">Owner</span>' : ''}${m.at ? `<time class="cs-msg-time" title="${escapeHtml(full)}">${csClock(m.at)}</time>` : ''}${saved ? `<span class="cs-msg-saved" title="Saved">${CS_ICON.save}</span>` : ''}</div>`}
+          ${cont ? '' : `<div class="cs-msg-head"><b class="cs-msg-name" ${personAttr(m.from, m.name)}${st.nick[normVoiceId(m.from)] ? ` title="${escapeHtml(m.name || '')}"` : ''}>${escapeHtml(csName(m.from, m.name))}</b>${owner && normVoiceId(m.from) === owner ? '<span class="cs-msg-owner" title="Owns this community">Owner</span>' : ''}${m.at ? `<time class="cs-msg-time" title="${escapeHtml(full)}">${csClock(m.at)}</time>` : ''}${saved ? `<span class="cs-msg-saved" title="Saved">${CS_ICON.save}</span>` : ''}</div>`}
           <div class="cs-msg-text${big ? ' big' : ''}">${scRich(body, { me: myNm })}</div>
         </div>
         <div class="cs-mtools">
@@ -3373,6 +3449,7 @@ function renderCommunityStage() {
   }).join('');
   csSeenMsgIds = new Set(msgs.map(csMsgId));
   const savedN = st.saved.filter((s) => s.cid === community.id).length;
+  const inboxN = readCommunities().reduce((n, c) => n + csCommunityUnread(c).at, 0);
   const replying = csReply && csReply.key === draftKey ? csReply : null;
   main.innerHTML = `
     <div class="cs-main-head">
@@ -3384,6 +3461,7 @@ function renderCommunityStage() {
       </span>
       <div class="cs-head-tools">
         <button type="button" class="cs-htool ${csSearch != null ? 'on' : ''}" id="cs-search-btn" title="Search this channel (Ctrl+F)">${CS_ICON.search}</button>
+        <button type="button" class="cs-htool" id="cs-inbox-btn" title="Mentions and alert words, every community">${CS_ICON.at}${inboxN ? `<em>${inboxN > 99 ? '99+' : inboxN}</em>` : ''}</button>
         <button type="button" class="cs-htool" id="cs-saved-btn" title="Saved messages">${CS_ICON.save}${savedN ? `<em>${savedN}</em>` : ''}</button>
         <button type="button" class="cs-htool" id="cs-more-btn" title="Channel options">${CS_ICON.more}</button>
         <button type="button" class="note-link cs-main-rules" data-open-rules>Rules</button>
@@ -3436,7 +3514,8 @@ function renderCommunityStage() {
     if (q) box.scrollTop = 0;
     else if (switchedChannel) {
       const line = box.querySelector('.cs-new-line');
-      box.scrollTop = line && line.offsetTop > box.clientHeight * 0.6 ? line.offsetTop - 40 : box.scrollHeight;
+      const mem = csScrollMem.get(paintedKey);
+      box.scrollTop = line && line.offsetTop > box.clientHeight * 0.6 ? line.offsetTop - 40 : (mem != null ? mem : box.scrollHeight);
     } else box.scrollTop = wasAtBottom ? box.scrollHeight : oldScroll;
     if (!switchedChannel && !wasAtBottom) csBelow += newBelow;
     if (atBottom()) csBelow = 0;
@@ -3444,7 +3523,7 @@ function renderCommunityStage() {
     box.addEventListener('scroll', () => {
       if (atBottom()) {
         csBelow = 0;
-        if (visible() && !q && csMarkRead(community, channel)) renderCommunities();
+        if (visible() && !q && csHoldRead !== draftKey && csMarkRead(community, channel)) renderCommunities();
       }
       paintJump();
     }, { passive: true });
@@ -3453,7 +3532,7 @@ function renderCommunityStage() {
     csBelow = 0;
     box?.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
   });
-  if (visible() && atBottom() && !q && csMarkRead(community, channel)) renderCommunities();
+  if (visible() && atBottom() && !q && csHoldRead !== draftKey && csMarkRead(community, channel)) renderCommunities();
 
   const input = document.getElementById('cs-input');
   const field = document.getElementById('cs-compose-field');
@@ -3545,6 +3624,7 @@ function renderCommunityStage() {
     document.getElementById('cs-search')?.focus();
   });
   document.getElementById('cs-saved-btn')?.addEventListener('click', (e) => { e.stopPropagation(); csSavedPanel(community, e.currentTarget); });
+  document.getElementById('cs-inbox-btn')?.addEventListener('click', (e) => { e.stopPropagation(); csInboxPanel(e.currentTarget); });
   document.getElementById('cs-more-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     const r = e.currentTarget.getBoundingClientRect();
@@ -3561,13 +3641,27 @@ function renderCommunityStage() {
         renderCommunityStage();
       }],
       '-',
+      ['Mark every community as read', () => csMarkAllRead(), { hint: 'Shift+Esc' }],
+      '-',
       ['Compact messages', setPref('compact'), { check: true, on: !!prefs.compact }],
       ['Always show times', setPref('times'), { check: true, on: !!prefs.times }],
       ['Sound when mentioned', setPref('ping'), { check: true, on: !!prefs.ping }],
+      ['Text size…', () => setTimeout(() => {
+        const setSize = (v) => () => { prefs.size = v; csSave(); renderCommunityStage(); };
+        scMenu(r.right - 230, r.bottom + 6, [
+          ['Small', setSize('s'), { check: true, on: prefs.size === 's' }],
+          ['Normal', setSize('m'), { check: true, on: prefs.size !== 's' && prefs.size !== 'l' }],
+          ['Large', setSize('l'), { check: true, on: prefs.size === 'l' }],
+        ], { title: 'Message text size' });
+      }, 0)],
+      [`Alert words${prefs.words.length ? ` (${prefs.words.length})` : ''}…`, () => csEditWords()],
       '-',
       ['Notify for every message', setLevel('all'), { check: true, on: level === 'all' }],
       ['Notify only for mentions', setLevel('mentions'), { check: true, on: level === 'mentions' }],
       ['Never notify', setLevel('none'), { check: true, on: level === 'none' }],
+      '-',
+      ['Save chat as a text file', () => csExport(community, channel)],
+      ['Jump to a channel…', () => csQuickSwitch(), { hint: 'Ctrl+J' }],
     ], { title: `#${channel.name}` });
   });
   document.getElementById('cs-compose')?.addEventListener('submit', async (e) => {
@@ -3585,6 +3679,7 @@ function renderCommunityStage() {
     try {
       await window.nebula.communitiesSend({ id: community.id, channelId: channel.id, text });
       if (sentReply) { csReply = null; renderCommunityStage(); }
+      csHoldRead = null;
       csMarkRead(community, channel);
     } catch (err) {
       if (!input.value) { input.value = typed; st.drafts[draftKey] = typed; csSave(); syncSend(); }
@@ -3752,15 +3847,228 @@ function csMsgMenu(c, ch, m, x, y) {
     ['Copy text', () => csCopy(body, 'Message')],
     ['Quote', () => { if (input) scInsert(input, `> ${body.slice(0, 120)} `); }],
     [saved ? 'Remove from saved' : 'Save message', () => { csToggleSaved(c, ch, m); renderCommunityStage(); }],
+    ...(mine ? [] : [['Mark unread from here', () => {
+      const st = csState();
+      const k = msgKey(c.id, ch.id);
+      st.read[k] = Math.max(0, (m.at || Date.now()) - 1);
+      csSave();
+      csHoldRead = k;
+      csUnreadFrom = st.read[k];
+      renderCommunities();
+      renderCommunityStage();
+    }]]),
     '-',
     ...(mine ? [] : [
       ['View profile', () => openProfile({ uuid: m.from, name: m.name })],
+      ['Set nickname…', () => csSetNick({ uuid: m.from, name: m.name })],
+      [csIgnored(m.from) ? 'Stop ignoring' : 'Ignore in communities', () => csToggleIgnore({ uuid: m.from, name: m.name })],
       ['Player options…', () => showPeopleMenu({ uuid: m.from, name: m.name }, x, y)],
       ['Report message', () => openReport({ uuid: m.from, name: m.name, context: { where: `${c.name} #${ch.name}`, text: m.text, at: m.at } }), { danger: true }],
     ]),
     ...(m.at ? [['Copy time', () => csCopy(new Date(m.at).toLocaleString(), 'Time'), { hint: csClock(m.at) }]] : []),
   ], { title: m.name || 'Message' });
 }
+
+function csPersonMenu(p, x, y) {
+  const st = csState();
+  const mine = normVoiceId(p.uuid) === myVoiceId();
+  const input = document.getElementById('cs-input');
+  const nick = st.nick[normVoiceId(p.uuid)];
+  scMenu(x, y, [
+    ['View profile', () => openProfile({ uuid: p.uuid, name: p.name })],
+    ...(mine ? [] : [
+      ...(input ? [['Mention', () => scInsert(input, `@${p.name} `)]] : []),
+      ['Set nickname…', () => csSetNick(p)],
+      ...(nick ? [['Clear nickname', () => { delete st.nick[normVoiceId(p.uuid)]; csSave(); renderCommunityStage(); }]] : []),
+      [csIgnored(p.uuid) ? 'Stop ignoring' : 'Ignore in communities', () => csToggleIgnore(p)],
+      '-',
+      ['Player options…', () => showPeopleMenu({ uuid: p.uuid, name: p.name }, x, y)],
+    ]),
+    ['Copy name', () => csCopy(p.name, 'Name')],
+  ], { title: nick ? `${nick} (${p.name})` : p.name });
+}
+
+async function csSetNick(p) {
+  const st = csState();
+  const id = normVoiceId(p.uuid);
+  const v = await showPrompt(`Nickname for ${p.name}. Only you see it.`, p.name, st.nick[id] || '', { allowEmpty: true });
+  if (v == null) return;
+  if (v) st.nick[id] = v.replace(/\s+/g, ' ').slice(0, 32); else delete st.nick[id];
+  csSave();
+  renderCommunityStage();
+}
+
+function csToggleIgnore(p) {
+  const st = csState();
+  const id = normVoiceId(p.uuid);
+  if (st.ignore[id]) {
+    delete st.ignore[id];
+    showToast(`Not ignoring ${escapeHtml(p.name)}`, 'Their community messages show normally again.', 'info');
+  } else {
+    st.ignore[id] = true;
+    showToast(`Ignoring ${escapeHtml(p.name)}`, 'Their community messages are folded away and never ping you. Only you see this.', 'info');
+  }
+  csSave();
+  renderCommunities();
+  renderCommunityStage();
+}
+
+async function csEditWords() {
+  const st = csState();
+  const v = await showPrompt('Alert words: ping me when someone says…', 'smp, raid, diamonds', st.prefs.words.join(', '), { allowEmpty: true });
+  if (v == null) return;
+  st.prefs.words = [...new Set(v.split(',').map((w) => w.trim().toLowerCase()).filter((w) => w.length >= 2))].slice(0, 20).map((w) => w.slice(0, 24));
+  csSave();
+  renderCommunities();
+  renderCommunityStage();
+  showToast(st.prefs.words.length ? 'Alert words saved' : 'Alert words cleared',
+    st.prefs.words.length ? escapeHtml(st.prefs.words.join(', ')) : '', 'success');
+}
+
+function csExport(c, ch) {
+  const ms = csMsgs(c, ch);
+  if (!ms.length) { showToast('Nothing to save', `#${escapeHtml(ch.name)} has no messages right now.`, 'info'); return; }
+  const lines = ms.map((m) => `[${m.at ? new Date(m.at).toLocaleString() : ''}] ${m.name || 'Someone'}: ${String(m.text || '').replace(/\r?\n/g, '\n    ')}`);
+  const text = `${c.name} #${ch.name} - saved ${new Date().toLocaleString()}\nCommunity messages only last 3 days.\n\n${lines.join('\n')}\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  a.download = `${c.name} - ${ch.name}.txt`.replace(/[\\/:*?"<>|]+/g, '_');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+/** Everything that mentioned you (or hit an alert word), across every community. */
+function csInboxPanel(anchor) {
+  const old = document.querySelector('.cs-inbox');
+  if (old) { old.remove(); return; }
+  const items = [];
+  for (const c of readCommunities()) {
+    for (const ch of c.channels || []) {
+      if (ch.kind !== 'text') continue;
+      const read = csReadAt(c, ch);
+      for (const m of csMsgs(c, ch)) if (!csIsMine(m) && csMentionsMe(m)) items.push({ c, ch, m, unread: (m.at || 0) > read });
+    }
+  }
+  items.sort((a, b) => (b.m.at || 0) - (a.m.at || 0));
+  const fresh = items.filter((it) => it.unread).length;
+  const pop = document.createElement('div');
+  pop.className = 'cs-saved cs-inbox';
+  pop.innerHTML = `
+    <div class="cs-saved-head"><b>Mentions</b><span>${items.length ? (fresh ? `${fresh} new` : 'All read') : 'None yet'}</span></div>
+    <div class="cs-saved-list">${items.length ? items.slice(0, 60).map((it, i) => {
+      const r = scParseReply(it.m.text);
+      return `<div class="cs-saved-item${it.unread ? ' unread' : ''}" data-i="${i}">
+        <img src="${frAvatar(it.m.from)}" alt="">
+        <div class="cs-saved-body">
+          <div class="cs-saved-meta"><b>${escapeHtml(csName(it.m.from, it.m.name))}</b><span>${escapeHtml(it.c.name)} · #${escapeHtml(it.ch.name)}</span><time>${it.m.at ? scAgo(it.m.at) : ''}</time></div>
+          <div class="cs-saved-text">${scRich(r ? r.body : String(it.m.text || ''), { me: myName() })}</div>
+        </div>
+        <div class="cs-saved-acts"><button type="button" data-a="jump">Jump</button></div>
+      </div>`;
+    }).join('') : `<div class="cs-saved-empty">${CS_ICON.at}<span>When someone @mentions you, replies to you or says one of your alert words, it lands here.</span></div>`}</div>`;
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = `${Math.round(r.bottom + 8)}px`;
+  pop.style.left = `${Math.round(Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)))}px`;
+  pop.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const row = e.target.closest('.cs-saved-item');
+    const it = row && items[Number(row.dataset.i)];
+    if (!it) return;
+    pop.remove();
+    csJumpTo(it.c.id, it.ch.id, csMsgId(it.m));
+  });
+  const off = (e) => {
+    if (pop.contains(e.target) || anchor.contains(e.target)) return;
+    pop.remove();
+    document.removeEventListener('mousedown', off, true);
+  };
+  document.addEventListener('mousedown', off, true);
+}
+
+/** Ctrl+J: type part of a channel or community name and go there. */
+function csQuickSwitch() {
+  if (!betaLayoutOn()) return;
+  const old = document.querySelector('.cs-qs');
+  if (old) { old.remove(); return; }
+  const all = [];
+  for (const c of readCommunities()) for (const ch of c.channels || []) all.push({ c, ch });
+  const wrap = document.createElement('div');
+  wrap.className = 'cs-qs';
+  wrap.innerHTML = `<div class="cs-qs-card" role="dialog" aria-label="Jump to a channel">
+    <input class="cs-qs-in" placeholder="${all.length ? 'Jump to a channel or community' : 'Join or make a community first'}" maxlength="40" spellcheck="false" autocomplete="off">
+    <div class="cs-qs-list"></div>
+    <div class="cs-qs-foot"><span><kbd>↑</kbd><kbd>↓</kbd> pick</span><span><kbd>Enter</kbd> go</span><span><kbd>Esc</kbd> close</span></div>
+  </div>`;
+  document.body.appendChild(wrap);
+  const input = wrap.querySelector('.cs-qs-in');
+  const listEl = wrap.querySelector('.cs-qs-list');
+  let sel = 0;
+  let hits = [];
+  const score = (it, q) => {
+    if (!q) return 1;
+    const n = it.ch.name.toLowerCase(), cn = it.c.name.toLowerCase();
+    if (n.startsWith(q)) return 5;
+    if (n.includes(q)) return 4;
+    if (cn.startsWith(q)) return 3;
+    if (cn.includes(q)) return 2;
+    return `${cn} ${n}`.includes(q) ? 1 : 0;
+  };
+  const isHere = (it) => it.c.id === openCommunityId && it.ch.id === openChannelId;
+  const paint = () => {
+    const q = input.value.trim().toLowerCase().replace(/^#/, '');
+    hits = all.map((it) => ({ it, s: score(it, q), u: csUnread(it.c, it.ch) }))
+      .filter((h) => h.s > 0)
+      .sort((a, b) => (b.s - a.s) || (b.u.at - a.u.at) || ((b.u.n > 0) - (a.u.n > 0)) || (isHere(a.it) - isHere(b.it)))
+      .slice(0, 12);
+    sel = Math.max(0, Math.min(sel, hits.length - 1));
+    listEl.innerHTML = hits.length ? hits.map(({ it, u }, i) => `<button type="button" class="cs-qs-row${i === sel ? ' sel' : ''}${isHere(it) ? ' here' : ''}" data-i="${i}">
+      <span class="cs-qs-glyph">${it.ch.kind === 'voice' ? VOICE_ICONS.headphones : '#'}</span><b>${escapeHtml(it.ch.name)}</b><em>${escapeHtml(it.c.name)}</em>
+      ${u.at ? `<i class="cs-qs-badge">${u.at > 9 ? '9+' : u.at}</i>` : u.n && !csMuted(it.c, it.ch) ? '<i class="cs-qs-dot"></i>' : ''}</button>`).join('')
+      : `<div class="cs-qs-none">${all.length ? 'Nothing called that' : 'No communities yet'}</div>`;
+  };
+  const close = () => wrap.remove();
+  const go = (i) => {
+    const h = hits[i];
+    if (!h) return;
+    close();
+    openCommunityStage(h.it.c.id, h.it.ch.id);
+  };
+  const pickRow = (i) => {
+    sel = i;
+    listEl.querySelectorAll('.cs-qs-row').forEach((b) => b.classList.toggle('sel', Number(b.dataset.i) === sel));
+    listEl.querySelector('.cs-qs-row.sel')?.scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('input', () => { sel = 0; paint(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (hits.length) pickRow((sel + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length);
+    } else if (e.key === 'Enter') { e.preventDefault(); go(sel); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+  listEl.addEventListener('mousemove', (e) => {
+    const b = e.target.closest('[data-i]');
+    if (b && Number(b.dataset.i) !== sel) pickRow(Number(b.dataset.i));
+  });
+  listEl.addEventListener('click', (e) => { const b = e.target.closest('[data-i]'); if (b) go(Number(b.dataset.i)); });
+  wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) close(); });
+  paint();
+  input.focus();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!betaLayoutOn() || document.body.classList.contains('is-banned')) return;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j') {
+    e.preventDefault();
+    csQuickSwitch();
+  } else if (e.key === 'Escape' && e.shiftKey && !e.ctrlKey && !e.altKey && readCommunities().length) {
+    e.preventDefault();
+    csMarkAllRead();
+  }
+});
 
 function csStartReply(c, ch, m) {
   const reply = scParseReply(m.text);
@@ -3795,7 +4103,7 @@ function csStartReply(c, ch, m) {
       if (!hit || !csFlash(csMsgId(hit))) showToast('Not found', "The original message isn't here anymore.", 'info');
       return;
     }
-    const btn = e.target.closest('.cs-mtools button[data-t]');
+    const btn = e.target.closest('.cs-mtools button[data-t], .cs-ignored button[data-t]');
     if (!btn) return;
     const hit = msgOf(btn);
     if (!hit) return;
@@ -3807,6 +4115,7 @@ function csStartReply(c, ch, m) {
       case 'at': if (input) scInsert(input, `@${m.name} `); break;
       case 'copy': csCopy(scParseReply(m.text)?.body ?? String(m.text || ''), 'Message'); break;
       case 'save': csToggleSaved(c, ch, m); renderCommunityStage(); break;
+      case 'unhide': csShowIgnored.add(csMsgId(m)); renderCommunityStage(); break;
       case 'more': { const r = btn.getBoundingClientRect(); csMsgMenu(c, ch, m, r.left - 190, r.bottom + 4); break; }
       default: break;
     }
@@ -3878,7 +4187,7 @@ function csNotifyNew(prev, next) {
       const had = new Set((old.messages?.[ch.id] || []).map(csMsgId));
       const muted = csMuted(c, ch);
       for (const m of csMsgs(c, ch)) {
-        if (had.has(csMsgId(m)) || normVoiceId(m.from) === me) continue;
+        if (had.has(csMsgId(m)) || normVoiceId(m.from) === me || csIgnored(m.from)) continue;
         if (m.at && Date.now() - m.at > 2 * 60 * 1000) continue;
         const mention = csMentionsMe(m);
         if (!mention && (level !== 'all' || muted)) continue;
@@ -3888,7 +4197,7 @@ function csNotifyNew(prev, next) {
         const r = scParseReply(m.text);
         const body = (r ? r.body : String(m.text || '')).replace(/\s+/g, ' ').slice(0, 140);
         const el = showToast(
-          `${escapeHtml(m.name || 'Someone')}${mention ? ' mentioned you' : ''} <span class="cs-toast-where">${escapeHtml(c.name)} · #${escapeHtml(ch.name)}</span>`,
+          `${escapeHtml(csName(m.from, m.name))}${mention ? ' mentioned you' : ''} <span class="cs-toast-where">${escapeHtml(c.name)} · #${escapeHtml(ch.name)}</span>`,
           escapeHtml(body), 'info');
         if (el) {
           el.classList.add('cs-toast');
@@ -4043,6 +4352,9 @@ document.addEventListener('click', (e) => {
 
 function applyBetaLayout(on) {
   document.body.classList.toggle('beta-layout', !!on);
+  document.body.classList.toggle('no-ui-motion', !!on && theme.uiMotion === false);
+  const lcInput = document.getElementById('live-chat-input');
+  if (lcInput) lcInput.placeholder = on ? 'Message everyone' : 'Say something to everyone';
   // Purple became the default accent; move people still on the old default once.
   if (on && localStorage.getItem('solar-accent-default-v') !== '1') {
     localStorage.setItem('solar-accent-default-v', '1');
@@ -5852,6 +6164,7 @@ function fmtLeft(ms) {
     screen.classList.toggle('hidden', !ban);
     clearInterval(tick); tick = null;
     if (!ban) return;
+    try { for (const k of ['admin', 'chat']) if (scFloat.get(k)?.win) scDock(k, { gone: true }); } catch { /* not wired yet */ }
     document.getElementById('mod-modal')?.classList.add('hidden');
     document.getElementById('live-chat')?.classList.add('hidden');
     paint();
@@ -6104,6 +6417,7 @@ async function openProfile({ uuid, name }) {
 function closeProfile() {
   profileSeq++;
   document.querySelector('.pf-overlay')?.remove();
+  for (const d of scPop.docs) d.querySelector('.pf-overlay')?.remove();
 }
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.querySelector('.pf-overlay')) closeProfile();
@@ -6447,7 +6761,7 @@ function scInsert(input, text) {
 /** @name suggestions while typing in a chat box. people() -> [{ uuid, name }]. */
 function scMentionAuto(input, people) {
   const pop = document.createElement('div');
-  pop.className = 'sc-mentions hidden';
+  pop.className = 'sc-mentions hidden sc-keep';
   document.body.appendChild(pop);
   let items = [];
   let sel = 0;
@@ -6460,6 +6774,7 @@ function scMentionAuto(input, people) {
   const paint = () => {
     pop.innerHTML = items.map((p, i) => `<button type="button" class="${i === sel ? 'sel' : ''}" data-i="${i}">
       <img src="${frAvatar(p.uuid)}" alt=""><span>${escapeHtml(p.name)}</span>${p.hint ? `<em>${escapeHtml(p.hint)}</em>` : ''}</button>`).join('');
+    if (pop.ownerDocument !== input.ownerDocument) input.ownerDocument.body.appendChild(pop);
     const r = scRect(input);
     pop.classList.remove('hidden');
     pop.style.left = `${Math.round(r.left)}px`;
@@ -6587,8 +6902,12 @@ function scRect(el) {
 }
 
 /** Beta: drop a floating panel down out of the top-bar button that opened it. */
+function scMotionOff() {
+  return !betaLayoutOn() || document.body.classList.contains('no-ui-motion') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function popDown(panel, chip) {
-  if (!panel || !betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!panel || scMotionOff()) return;
   clearTimeout(panel._popOutTimer);
   panel.classList.remove('sc-pop-out');
   const r = panel.getBoundingClientRect();
@@ -6607,7 +6926,7 @@ function popDown(panel, chip) {
 
 /** Beta: fold a panel back up into its button, then run hide(). */
 function popClose(panel, hide) {
-  if (!panel || !betaLayoutOn() || window.matchMedia('(prefers-reduced-motion: reduce)').matches || panel.classList.contains('hidden')) { hide(); return; }
+  if (!panel || scMotionOff() || panel.classList.contains('hidden') || panel._scQuiet) { panel && (panel._scQuiet = false); hide(); return; }
   clearTimeout(panel._popTimer);
   panel.classList.remove('sc-pop');
   panel.classList.add('sc-pop-out');
@@ -6615,11 +6934,334 @@ function popClose(panel, hide) {
   panel._popOutTimer = setTimeout(() => { panel.classList.remove('sc-pop-out'); hide(); }, 190);
 }
 
+// ---------- Beta: floating panels (live chat, admin panel) ----------
+// Dragging one into the other knocks the other aside. Pushing one past the
+// edge of the launcher lights the edge and, on release, bounces it out into
+// its own window (the header button does the same). The panel's own DOM is
+// moved into that window, so it keeps working exactly as before; dragging
+// the window back over the launcher docks it again.
+const scFloat = new Map();
+const SC_SPRING = 'cubic-bezier(.34,1.56,.64,1)';
+const SC_FLOATERS = '.sc-menu, .sc-emoji, .people-menu, .fr-menu';
+const SC_FOLLOW_IDS = ['confirm-modal', 'report-modal', 'mod-viewer'];
+const SC_POP_SVG = {
+  out: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
+  dock: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3h-8v2h8v14H5v-8H3v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM10 12V10H6.41l5.3-5.29-1.42-1.42L5 8.59V5H3v7h7z"/></svg>',
+};
+
+function scFloatPaintBtn(f) {
+  f.btn.innerHTML = f.win ? SC_POP_SVG.dock : SC_POP_SVG.out;
+  f.btn.title = f.win ? 'Dock back into SolarClient' : 'Pop out into its own window';
+  f.btn.setAttribute('aria-label', f.btn.title);
+}
+
+/** o: { panel, host, chip, closeBtn, btnClass, title, isOpen(), place(x, y), save(), restore(), close() } */
+function scFloatAdd(key, o) {
+  const f = { ...o, key, win: null };
+  scFloat.set(key, f);
+  f.btn = document.createElement('button');
+  f.btn.type = 'button';
+  f.btn.className = `${o.btnClass} sc-popbtn beta-only`;
+  o.closeBtn.before(f.btn);
+  scFloatPaintBtn(f);
+  f.btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (f.win) scDock(key);
+    else scPopOut(key, { side: 'right' });
+  });
+  // While it has its own window, the top-bar button just brings that forward.
+  o.chip.addEventListener('click', (e) => {
+    if (!f.win) return;
+    e.stopImmediatePropagation();
+    try { f.win.focus(); } catch { /* closed */ }
+  }, true);
+  return f;
+}
+
+/**
+ * Knock any other open panel out from under this one. It hops over to the
+ * side this one came from (they swap), or the other side if that's full.
+ */
+function scFloatBump(f, { force = false } = {}) {
+  if (!betaLayoutOn() || f.win) return;
+  const a = f.panel.getBoundingClientRect();
+  const gap = 12;
+  for (const o of scFloat.values()) {
+    if (o === f || o.win || (o.bumping && !force) || !o.isOpen()) continue;
+    const b = o.panel.getBoundingClientRect();
+    if (!b.width || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top) continue;
+    const W = window.innerWidth;
+    const fits = (x) => x >= 8 && x + b.width <= W - 8;
+    const at = { 1: a.right + gap, '-1': a.left - gap - b.width };
+    const side = f.dragDir ? -f.dragDir : (b.left + b.width / 2 >= a.left + a.width / 2 ? 1 : -1);
+    let x = at[side];
+    if (!fits(x)) x = fits(at[-side]) ? at[-side] : Math.max(8, Math.min(x, W - b.width - 8));
+    if (Math.abs(x - b.left) < 2) continue;
+    const dir = x >= b.left ? 1 : -1;
+    o.bumping = true;
+    o.bumpAnim?.cancel();
+    o.place(x, b.top);
+    if (!scMotionOff()) {
+      const now = o.panel.getBoundingClientRect();
+      const ox = b.left - now.left, oy = b.top - now.top;
+      o.bumpAnim = o.panel.animate([
+        { translate: `${ox}px ${oy}px`, transform: 'none' },
+        { translate: `${ox + dir * 14}px ${oy}px`, transform: 'scale(0.93, 1.05)', offset: 0.14 },
+        { translate: `${dir * 10}px 0px`, transform: 'scale(1.03, 0.98)', offset: 0.55 },
+        { translate: `${dir * -3}px 0px`, transform: 'scale(0.995, 1.005)', offset: 0.8 },
+        { translate: '0px 0px', transform: 'none' },
+      ], { duration: 560, easing: 'cubic-bezier(.2,.8,.3,1)' });
+      o.panel.style.transformOrigin = dir > 0 ? 'left center' : 'right center';
+    }
+    clearTimeout(o.bumpTimer);
+    o.bumpTimer = setTimeout(() => { o.bumping = false; o.panel.style.transformOrigin = ''; o.save(); }, 560);
+  }
+}
+
+let scEdgeEl = null;
+/** During a header drag. want = where the panel is trying to go before it's kept on screen. */
+function scFloatDrag(f, ev, want) {
+  if (!f || !betaLayoutOn()) return;
+  const moved = want.x - (f.lastWantX ?? want.x);
+  if (Math.abs(moved) > 1) f.dragDir = Math.sign(moved);
+  f.lastWantX = want.x;
+  scFloatBump(f);
+  const W = window.innerWidth, H = window.innerHeight;
+  let side = null, push = 0;
+  for (const [s, p] of [['right', want.x + want.w - (W - 8)], ['left', 8 - want.x], ['bottom', (ev.clientY - (H - 4)) * 2.5]]) {
+    if (p > push) { side = s; push = p; }
+  }
+  if (!side || push < 6) { scEdgeHide(f); return; }
+  if (!scEdgeEl) {
+    scEdgeEl = document.createElement('div');
+    scEdgeEl.className = 'sc-edge';
+    scEdgeEl.innerHTML = '<span>Let go to pop out</span>';
+    document.body.appendChild(scEdgeEl);
+  }
+  const k = Math.min(1, push / 110);
+  const armed = k >= 1;
+  scEdgeEl.className = `sc-edge on ${side}${armed ? ' armed' : ''}`;
+  scEdgeEl.style.setProperty('--k', k.toFixed(3));
+  scEdgeEl.style.setProperty('--cx', `${ev.clientX}px`);
+  scEdgeEl.style.setProperty('--cy', `${ev.clientY}px`);
+  // Rubber band: the panel leans over the edge the harder you push.
+  const lean = scMotionOff() ? 0 : Math.round(Math.min(push, 180) * 0.2);
+  f.panel.style.translate = side === 'right' ? `${lean}px 0px` : side === 'left' ? `${-lean}px 0px` : `0px ${lean}px`;
+  f.panel.classList.toggle('sc-edge-armed', armed);
+  f.edge = { side, armed };
+}
+
+function scEdgeHide(f) {
+  scEdgeEl?.classList.remove('on', 'armed');
+  if (!f) return;
+  f.edge = null;
+  f.panel.classList.remove('sc-edge-armed');
+  const was = f.panel.style.translate;
+  f.panel.style.translate = '';
+  if (was && was !== '0px 0px' && !scMotionOff()) {
+    f.panel.animate([{ translate: was }, { translate: '0px 0px' }], { duration: 420, easing: SC_SPRING });
+  }
+}
+
+/** End of a header drag; true when it popped out. */
+function scFloatDrop(f, ev, grab) {
+  if (!f) return false;
+  const edge = f.edge;
+  if (!edge?.armed) {
+    scEdgeHide(f);
+    scFloatBump(f, { force: true });
+    f.dragDir = 0; f.lastWantX = null;
+    return false;
+  }
+  f.dragDir = 0; f.lastWantX = null;
+  f.edge = null;
+  scPopOut(f.key, { side: edge.side, ev, grab });
+  return true;
+}
+
+function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
+  const f = scFloat.get(key);
+  if (!f || f.win || !betaLayoutOn() || !f.isOpen()) return;
+  const r = f.panel.getBoundingClientRect();
+  const w = Math.round(r.width), h = Math.round(r.height);
+  // Land just past the edge it went over (the main process keeps it on screen).
+  let x = window.screenX + Math.round(r.left) + 40, y = window.screenY + Math.round(r.top) + 24;
+  if (ev) {
+    y = ev.screenY - (grab?.y || 20);
+    if (side === 'right') x = window.screenX + window.outerWidth + 10;
+    else if (side === 'left') x = window.screenX - w - 10;
+    else { x = ev.screenX - (grab?.x || w / 2); y = window.screenY + window.outerHeight + 10; }
+  }
+  const win = window.open('', `sc-pop-${key}`, `popup=yes,width=${w},height=${h},left=${Math.round(x)},top=${Math.round(y)}`);
+  if (!win?.document) { showToast("Couldn't pop out", 'The window could not be opened.', 'error'); scEdgeHide(f); return; }
+  const d = win.document;
+  d.open();
+  d.write(`<!doctype html><html><head><meta charset="utf-8"><base href="${escapeHtml(location.href)}"><title>${escapeHtml(f.title)} · SolarClient</title><link rel="stylesheet" href="style.css"></head><body><div id="toast-container" class="toast-container"></div></body></html>`);
+  d.close();
+  f.win = win;
+  scPop.docs.add(d);
+  scPop.active = d;
+
+  const dx = side === 'right' ? 1 : side === 'left' ? -1 : 0, dy = side === 'bottom' ? 1 : 0;
+  scEdgeEl?.classList.add('fire');
+  setTimeout(() => scEdgeEl?.classList.remove('fire'), 500);
+  const move = () => {
+    if (f.win !== win) return;
+    scEdgeHide(null);
+    f.panel.getAnimations().forEach((a) => a.cancel());
+    f.panel.style.translate = '';
+    f.panel.classList.remove('sc-edge-armed', 'sc-pop', 'sc-pop-out', 'dragging', 'resizing');
+    window.SolarLiquidGlass?.detach(f.panel);
+    f.home = { parent: f.host.parentNode, next: f.host.nextSibling };
+    const look = () => {
+      d.documentElement.style.cssText = document.documentElement.style.cssText;
+      d.body.className = `${document.body.className.replace(/\bwin-blurred\b/g, '')} sc-popdoc sc-popdoc-${key}`;
+    };
+    look();
+    f.lookObs = new MutationObserver(look);
+    f.lookObs.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    f.lookObs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    d.body.appendChild(f.host);
+    f.chip.classList.add('sc-popped');
+    scFloatPaintBtn(f);
+    if (!scMotionOff()) {
+      f.panel.animate([
+        { transform: `translate(${-dx * 40}px, ${-dy * 40}px) scale(0.9)`, opacity: 0 },
+        { transform: `translate(${dx * 8}px, ${dy * 8}px) scale(1.02)`, opacity: 1, offset: 0.55 },
+        { transform: `translate(${dx * -2}px, ${dy * -2}px) scale(0.995)`, opacity: 1, offset: 0.8 },
+        { transform: 'none', opacity: 1 },
+      ], { duration: 480, easing: 'cubic-bezier(.2,.9,.25,1)' });
+    }
+    try { win.focus(); } catch { /* closed */ }
+  };
+
+  // Clicks inside the new window behave like they do in the launcher.
+  for (const [type, fn, opts] of SC_DOC_CLICKS) d.addEventListener(type, fn, opts);
+  d.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[href]');
+    if (!a || e.defaultPrevented) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(a.href)) window.nebula.openExternal(a.href).catch(() => {});
+  });
+  const dropFloaters = (keep) => d.querySelectorAll(SC_FLOATERS).forEach((m) => { if (!keep || !m.contains(keep)) m.remove(); });
+  d.addEventListener('pointerdown', (e) => { scPop.active = d; dropFloaters(e.target); }, true);
+  d.addEventListener('keydown', (e) => { if (e.key === 'Escape' && d.querySelector(SC_FLOATERS)) { e.stopPropagation(); dropFloaters(null); } }, true);
+  win.addEventListener('focus', () => { scPop.active = d; });
+  win.addEventListener('pagehide', () => { if (f.win === win) scDock(key, { gone: true }); });
+  clearInterval(f.poll);
+  f.poll = setInterval(() => { if (f.win === win && win.closed) scDock(key, { gone: true }); }, 1000);
+
+  if (scMotionOff()) { move(); return; }
+  const cur = f.panel.style.translate || '0px 0px';
+  f.panel.animate([
+    { translate: cur, transform: 'none', opacity: 1 },
+    { translate: `${-dx * 12}px ${-dy * 12}px`, transform: dx ? 'scale(0.92, 1.05)' : 'scale(1.05, 0.92)', opacity: 1, offset: 0.28 },
+    { translate: `${dx * 40}px ${dy * 40}px`, transform: 'scale(1.03)', opacity: 1, offset: 0.55 },
+    { translate: `${dx * 115}% ${dy * 115}%`, transform: 'scale(0.9)', opacity: 0 },
+  ], { duration: 380, easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' });
+  setTimeout(move, 360);
+}
+
+/** Bring a popped-out panel home. at: where the cursor let go over the launcher. gone: its window was closed. */
+function scDock(key, { at = null, gone = false } = {}) {
+  const f = scFloat.get(key);
+  if (!f?.win) return;
+  const win = f.win;
+  const d = win.document;
+  f.win = null;
+  scPop.docs.delete(d);
+  if (scPop.active === d) scPop.active = document;
+  f.lookObs?.disconnect();
+  clearInterval(f.poll);
+  scDockHint(null);
+  for (const n of [...d.body.children]) {
+    if (n === f.host || n.id === 'toast-container') continue;
+    if (SC_FOLLOW_IDS.includes(n.id)) document.body.appendChild(n);
+    else n.remove();
+  }
+  f.panel.getAnimations().forEach((a) => a.cancel());
+  const { parent, next } = f.home || { parent: document.body, next: null };
+  parent.insertBefore(f.host, next && next.parentNode === parent ? next : null);
+  f.chip.classList.remove('sc-popped');
+  scFloatPaintBtn(f);
+  if (!gone) { try { win.close(); } catch { /* already gone */ } }
+  if (gone) { f.panel._scQuiet = true; f.close(); return; }
+  f.restore();
+  if (at) f.place(at.x - at.ox, at.y - at.oy);
+  window.SolarLiquidGlass?.attach(f.panel);
+  f.save();
+  if (!scMotionOff()) {
+    f.panel.animate([
+      { transform: 'scale(0.86)', opacity: 0, boxShadow: '0 0 0 3px #fff, 0 0 70px rgba(255,255,255,0.7)' },
+      { transform: 'scale(1.035)', opacity: 1, boxShadow: '0 0 0 2px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.35)', offset: 0.55 },
+      { transform: 'scale(0.995)', opacity: 1, offset: 0.8 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: 520, easing: 'cubic-bezier(.2,.9,.25,1)' });
+  }
+  scFloatBump(f);
+  window.focus();
+}
+
+let scDockHintEl = null;
+function scDockHint(f) {
+  if (!scDockHintEl) {
+    scDockHintEl = document.createElement('div');
+    scDockHintEl.className = 'sc-dock-hint';
+    scDockHintEl.innerHTML = '<span></span>';
+    document.body.appendChild(scDockHintEl);
+  }
+  if (f) scDockHintEl.firstChild.textContent = `Let go to dock ${f.title.toLowerCase()}`;
+  scDockHintEl.classList.toggle('on', !!f);
+}
+
+window.nebula?.onPopoutHover?.(({ key, over }) => {
+  const f = scFloat.get(key);
+  if (!f?.win) return;
+  f.win.document.documentElement.classList.toggle('sc-merging', !!over);
+  scDockHint(over ? f : null);
+});
+window.nebula?.onPopoutDock?.((p) => {
+  if (scFloat.get(p?.key)?.win) scDock(p.key, { at: p });
+});
+window.addEventListener('beforeunload', () => { for (const f of scFloat.values()) { try { f.win?.close(); } catch { /* gone */ } } });
+document.addEventListener('pointerdown', () => { scPop.active = document; }, true);
+window.addEventListener('focus', () => { scPop.active = document; });
+
+// Menus, pickers and dialogs open in whichever window you're using.
+new MutationObserver((muts) => {
+  const d = scActiveDoc();
+  if (d === document) return;
+  for (const m of muts) {
+    for (const n of m.addedNodes) {
+      if (n.nodeType !== 1 || n.classList.contains('sc-keep') || !n.matches(`${SC_FLOATERS}, .pf-overlay, .sync-modal:has(#prompt-input)`)) continue;
+      const focused = n.contains(document.activeElement) ? document.activeElement : null;
+      d.body.appendChild(n);
+      const W = d.defaultView.innerWidth, H = d.defaultView.innerHeight;
+      if (n.style.left) n.style.left = `${Math.max(6, Math.min(parseFloat(n.style.left), W - n.offsetWidth - 6))}px`;
+      if (n.style.top) n.style.top = `${Math.max(6, Math.min(parseFloat(n.style.top), H - n.offsetHeight - 6))}px`;
+      focused?.focus();
+    }
+  }
+}).observe(document.body, { childList: true });
+for (const id of SC_FOLLOW_IDS) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  new MutationObserver(() => {
+    const shown = !el.classList.contains('hidden');
+    const d = scActiveDoc();
+    if (shown && d !== document && el.ownerDocument !== d) {
+      const focused = el.contains(el.ownerDocument.activeElement) ? el.ownerDocument.activeElement : null;
+      d.body.appendChild(el);
+      focused?.focus();
+    } else if (!shown && el.ownerDocument !== document) document.body.appendChild(el);
+  }).observe(el, { attributes: true, attributeFilter: ['class'] });
+}
+
 (function wireModeration() {
   const chip = document.getElementById('mod-chip');
   const modal = document.getElementById('mod-modal');
   if (!chip || !modal || !window.nebula?.modRequest) return;
-  const $ = (id) => document.getElementById(id);
+  const $ = (id) => document.getElementById(id) || modal.querySelector(`#${CSS.escape(id)}`);
   const badge = $('mod-chip-badge');
   const flagList = $('mod-flag-list');
   const reportList = $('mod-report-list');
@@ -6672,7 +7314,7 @@ function popClose(panel, hide) {
   function setAccess(on) {
     isMod = !!on;
     chip.classList.toggle('hidden', !isMod);
-    if (!isMod) { modal.classList.add('hidden'); return; }
+    if (!isMod) { if (modFloat.win) scDock('admin', { gone: true }); modal.classList.add('hidden'); return; }
     load(false);
   }
 
@@ -6965,6 +7607,7 @@ function popClose(panel, hide) {
     load();
   }
   const close = () => {
+    if (modFloat.win) { scDock('admin', { gone: true }); return; }
     chip.classList.remove('open');
     popClose(panel, () => modal.classList.add('hidden'));
   };
@@ -6996,17 +7639,21 @@ function popClose(panel, hide) {
     } catch { /* full */ }
   };
   head.addEventListener('mousedown', (e) => {
-    if (e.button !== 0 || e.target.closest('button, input')) return;
+    if (e.button !== 0 || e.target.closest('button, input') || modFloat.win) return;
     e.preventDefault();
     const r = panel.getBoundingClientRect();
     const ox = e.clientX - r.left, oy = e.clientY - r.top;
     modal.classList.add('dragging');
-    const move = (ev) => placeBox({ x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
-    const up = () => {
+    const move = (ev) => {
+      placeBox({ x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
+      scFloatDrag(modFloat, ev, { x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
+    };
+    const up = (ev) => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       modal.classList.remove('dragging');
       saveBox();
+      scFloatDrop(modFloat, ev, { x: ox, y: oy });
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -7042,10 +7689,17 @@ function popClose(panel, hide) {
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   }));
-  window.addEventListener('resize', () => { if (isOpen()) placeBox(boxNow()); });
+  window.addEventListener('resize', () => { if (isOpen() && !modFloat.win) placeBox(boxNow()); });
   scPanelScale(panel, 460);
+  const modFloat = scFloatAdd('admin', {
+    panel, host: modal, chip, closeBtn: $('mod-close'), btnClass: 'mod-icon-btn',
+    title: 'Admin panel', isOpen, close,
+    place: (x, y) => placeBox({ x, y, w: panel.offsetWidth, h: panel.offsetHeight }),
+    save: saveBox,
+    restore: () => placeBox(boxNow()),
+  });
   head.addEventListener('dblclick', (e) => {
-    if (e.target.closest('button')) return;
+    if (e.target.closest('button') || modFloat.win) return;
     try { localStorage.removeItem(BOX_KEY); } catch { /* ignore */ }
     placeBox(defaultBox());
   });
@@ -7107,7 +7761,7 @@ function popClose(panel, hide) {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!viewer.classList.contains('hidden')) closeViewer();
-    else if (isOpen()) close();
+    else if (isOpen() && !modFloat.win) close();
   });
   refreshBtn.addEventListener('click', () => load());
   modal.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
@@ -9914,7 +10568,7 @@ document.getElementById('skin-edit-btn').addEventListener('click', () => {
 
 // A small text prompt in the app's own styling. window.prompt is blocked
 // in Electron renderers, and showConfirm only answers yes/no.
-function showPrompt(title, placeholder = '', initial = '') {
+function showPrompt(title, placeholder = '', initial = '', { allowEmpty = false } = {}) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'sync-modal';
@@ -9934,11 +10588,12 @@ function showPrompt(title, placeholder = '', initial = '') {
     input.value = initial;
     input.focus();
     const done = (v) => { wrap.remove(); resolve(v); };
-    wrap.querySelector('[data-act="ok"]').addEventListener('click', () => done(input.value.trim() || null));
+    const value = () => (allowEmpty ? input.value.trim() : input.value.trim() || null);
+    wrap.querySelector('[data-act="ok"]').addEventListener('click', () => done(value()));
     wrap.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
     wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') done(input.value.trim() || null);
+      if (e.key === 'Enter') done(value());
       if (e.key === 'Escape') done(null);
     });
   });
@@ -11197,18 +11852,22 @@ function showPeopleMenu(person, x, y) {
     } catch { /* ignore */ }
   };
   head.addEventListener('mousedown', (e) => {
-    if (e.button !== 0 || e.target.closest('button')) return;
+    if (e.button !== 0 || e.target.closest('button') || lcFloat.win) return;
     e.preventDefault();
     const r = panel.getBoundingClientRect();
     const ox = e.clientX - r.left, oy = e.clientY - r.top;
     panel.classList.add('dragging');
-    const move = (ev) => placeAt(ev.clientX - ox, ev.clientY - oy);
-    const up = () => {
+    const move = (ev) => {
+      placeAt(ev.clientX - ox, ev.clientY - oy);
+      scFloatDrag(lcFloat, ev, { x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
+    };
+    const up = (ev) => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       panel.classList.remove('dragging');
       const b = panel.getBoundingClientRect();
       try { localStorage.setItem(POS_KEY, JSON.stringify({ x: Math.round(b.left), y: Math.round(b.top) })); } catch { /* full */ }
+      scFloatDrop(lcFloat, ev, { x: ox, y: oy });
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -11269,13 +11928,13 @@ function showPeopleMenu(person, x, y) {
     window.addEventListener('mouseup', up);
   }));
   head.addEventListener('dblclick', (e) => {
-    if (e.target.closest('button')) return;
+    if (e.target.closest('button') || lcFloat.win) return;
     panel.style.left = ''; panel.style.top = ''; panel.style.right = '';
     panel.style.width = ''; panel.style.height = '';
     try { localStorage.removeItem(POS_KEY); localStorage.removeItem(SIZE_KEY); } catch { /* ignore */ }
   });
   window.addEventListener('resize', () => {
-    if (!isOpen()) return;
+    if (!isOpen() || lcFloat.win) return;
     if (panel.style.width) applySize(panel.offsetWidth, panel.offsetHeight);
     if (!panel.style.left) return;
     const b = panel.getBoundingClientRect();
@@ -11372,8 +12031,8 @@ function showPeopleMenu(person, x, y) {
     replyTo = m ? { name: m.name || 'Player', text: scParseReply(m.text)?.body || m.text } : null;
     replyBar.classList.toggle('hidden', !replyTo);
     if (replyTo) {
-      document.getElementById('lc-reply-name').textContent = replyTo.name;
-      document.getElementById('lc-reply-quote').textContent = replyTo.text.slice(0, 80);
+      panel.querySelector('#lc-reply-name').textContent = replyTo.name;
+      panel.querySelector('#lc-reply-quote').textContent = replyTo.text.slice(0, 80);
       input.focus();
     }
   };
@@ -11554,8 +12213,9 @@ function showPeopleMenu(person, x, y) {
       ['Show who\'s here', () => setLcPref('people', !p.people), { check: true, on: p.people }],
       ['Sound when mentioned', () => setLcPref('ping', !p.ping), { check: true, on: p.ping }],
       '-',
-      ['Reset size and position', () => head.dispatchEvent(new MouseEvent('dblclick'))],
-      ['Chat rules', () => document.querySelector('#live-chat [data-open-rules]')?.click()],
+      ...(lcFloat.win ? [] : [['Reset size and position', () => head.dispatchEvent(new MouseEvent('dblclick'))]]),
+      [lcFloat.win ? 'Dock back into SolarClient' : 'Pop out into its own window', () => (lcFloat.win ? scDock('chat') : scPopOut('chat'))],
+      ['Chat rules', () => panel.querySelector('[data-open-rules]')?.click()],
     ], { title: 'Live chat' });
   });
   document.getElementById('lc-emoji-btn').addEventListener('click', (e) => {
@@ -11655,11 +12315,19 @@ function showPeopleMenu(person, x, y) {
     }).catch(() => {});
   }
   function close() {
+    if (lcFloat.win) { scDock('chat', { gone: true }); return; }
     try { localStorage.setItem(LC_SEEN_KEY, String(Date.now())); } catch { /* full */ }
     chip.classList.remove('open');
     window.nebula.chatPresence?.(false).catch(() => {});
     popClose(panel, () => panel.classList.add('hidden'));
   }
+  const lcFloat = scFloatAdd('chat', {
+    panel, host: panel, chip, closeBtn: document.getElementById('live-chat-close'), btnClass: 'sc-hbtn',
+    title: 'Live chat', isOpen, close,
+    place: (x, y) => placeAt(x, y),
+    save: saveLayout,
+    restore: () => { restoreSize(); restorePos(); },
+  });
 
   async function send() {
     const typed = input.value.trim();

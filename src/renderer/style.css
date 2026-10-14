@@ -32,8 +32,15 @@ body{
 button, input, select{font-family:inherit;}
 input, select, textarea{-webkit-user-select:text; user-select:text;}
 
-body.no-anim *, body.no-anim *::before, body.no-anim *::after{
+body.no-anim:not(.beta-layout) *, body.no-anim:not(.beta-layout) *::before, body.no-anim:not(.beta-layout) *::after,
+body.no-ui-motion *, body.no-ui-motion *::before, body.no-ui-motion *::after{
   animation:none !important; transition:none !important;
+}
+/* Beta: "Animations" off only stops the ambient loops; menus and buttons keep moving. */
+body.beta-layout.no-anim :is(.blob, .titlebar .logo-mark, .hero-sheen, .skin-stage, .skin-shadow, .skin-ring,
+  .tile-stars, .logo-planet, .logo-spark, .wordmark, .cs-hello-orb, .cs-voice-orb),
+body.beta-layout.no-anim :is(.titlebar .logo-mark, .hero-sheen, .cs-join-btn)::after{
+  animation:none !important;
 }
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{animation:none !important; transition:none !important;}
@@ -4686,12 +4693,141 @@ pre.sc-code{ margin:4px 0; padding:8px 10px; border-radius:8px; background:rgba(
 @keyframes sc-pop-up{ from{ opacity:1; transform:none; } to{ opacity:0; transform:translateY(-10px) scale(0.94, 0.7); } }
 @keyframes sc-pop-child{ from{ opacity:0; transform:translateY(-8px); } to{ opacity:1; transform:none; } }
 
-/* Top-bar buttons give a little squash when pressed. */
-body.beta-layout :is(.topbar-chip, .online-indicator){ transition:transform .14s cubic-bezier(.2,.9,.25,1), filter .14s, background-color .14s; }
-body.beta-layout :is(.topbar-chip, .online-indicator):active{ transform:scale(0.94); }
-body.beta-layout .sc-chip-press{ animation:sc-chip-press .42s cubic-bezier(.2,.9,.25,1); }
-@keyframes sc-chip-press{ 0%{ transform:scale(1); } 30%{ transform:scale(0.9); } 65%{ transform:scale(1.05); } 100%{ transform:scale(1); } }
-body.beta-layout :is(#chat-chip, #mod-chip).open{ filter:brightness(1.18); }
+/* Top-bar buttons (beta): sheen on hover, springy squash + glow ring on click,
+   and the chip whose panel is open stays pressed in with a tab pointing at it. */
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip){
+  position:relative; isolation:isolate;
+  transition:transform .5s cubic-bezier(.34,1.56,.64,1), filter .2s ease, box-shadow .35s ease;
+}
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip)::after{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:2;
+  background:linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.38) 50%, transparent 62%) no-repeat;
+  background-size:260% 100%; background-position:130% 0; opacity:0;
+}
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):hover::after{
+  animation:sc-chip-sheen .75s cubic-bezier(.3,.7,.3,1) forwards;
+}
+@keyframes sc-chip-sheen{ 0%{ opacity:1; background-position:130% 0; } 100%{ opacity:1; background-position:-30% 0; } }
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 18px -8px var(--accent-glow);
+}
+body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):active{
+  transform:translateY(1px) scale(0.9, 0.86); transition-duration:.09s;
+}
+body.beta-layout .sc-chip-press{ animation:sc-chip-press .62s cubic-bezier(.2,.9,.25,1); }
+@keyframes sc-chip-press{
+  0%{ transform:scale(0.9, 0.86); box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
+  35%{ transform:scale(1.08, 1.1); }
+  60%{ transform:scale(0.97, 0.96); }
+  80%{ transform:scale(1.015); }
+  100%{ transform:none; box-shadow:0 0 0 12px transparent; }
+}
+body.beta-layout :is(#online-indicator, #chat-chip, #mod-chip).open,
+body.beta-layout #updates-menu-wrap.open #update-chip{
+  filter:brightness(1.22);
+  box-shadow:inset 0 2px 6px rgba(0,0,0,0.45), 0 0 16px -4px var(--accent-glow);
+}
+body.beta-layout :is(#online-indicator, #chat-chip, #mod-chip)::before,
+body.beta-layout #update-chip::before{
+  content:''; position:absolute; left:50%; bottom:-11px; width:10px; height:10px; z-index:3; pointer-events:none;
+  background:rgb(34,28,56); border:1px solid rgba(255,255,255,0.22); border-right:0; border-bottom:0; border-radius:3px 0 0 0;
+  transform:translateX(-50%) rotate(45deg) scale(0); opacity:0;
+  transition:transform .4s cubic-bezier(.34,1.56,.64,1), opacity .15s ease;
+}
+body.beta-layout :is(#online-indicator, #chat-chip, #mod-chip).open::before,
+body.beta-layout #updates-menu-wrap.open #update-chip::before{
+  transform:translateX(-50%) rotate(45deg) scale(1); opacity:1;
+}
+
+/* Live chat + admin panel, plainer: no icon tiles, no tinted pills, text actions. */
+body.beta-layout :is(#mod-modal .mod-shield, #live-chat .lc-icon, .lc-empty-ic, #mod-modal .mod-empty-ic){ display:none; }
+body.beta-layout #live-chat > .lc-note{ display:none; }
+body.beta-layout #live-chat #live-chat-send{ background:var(--accent); border:0; border-radius:8px; padding:0 16px; font-weight:600; color:#fff; }
+body.beta-layout #live-chat #live-chat-send:hover:not(:disabled){ filter:brightness(1.1); }
+body.beta-layout #mod-modal .mod-tab .mod-count{ min-width:0; padding:0; background:none; color:rgba(255,255,255,0.38); }
+body.beta-layout #mod-modal :is(.mod-tab.has .mod-count, .mod-tab .mod-count.has){ background:none; color:#ff7a84; }
+body.beta-layout #mod-modal .mod-tag{ padding:0; background:none; font-size:11.5px; font-weight:500; }
+body.beta-layout #mod-modal :is(.mod-tag.why, .mod-tag.perm){ background:none; }
+body.beta-layout #mod-modal :is(.mod-tag.swear, .mod-tag.temp){ background:none; }
+body.beta-layout #mod-modal .mod-who b{ font-weight:600; }
+body.beta-layout #mod-modal .mod-card > .mod-flag-actions{ gap:2px; margin-left:35px; }
+body.beta-layout #mod-modal .mod-panel.sc-narrow .mod-card > .mod-flag-actions{ margin-left:-9px; }
+body.beta-layout #mod-modal .mod-flag-actions .mod-act{ height:26px; padding:0 9px; border-color:transparent; background:none; color:rgba(255,255,255,0.55); }
+body.beta-layout #mod-modal .mod-flag-actions .mod-act svg{ display:none; }
+body.beta-layout #mod-modal .mod-flag-actions .mod-act:hover:not(:disabled){ background:rgba(255,255,255,0.08); border-color:transparent; color:#fff; }
+body.beta-layout #mod-modal .mod-flag-actions .mod-act.ban{ color:#ff8d97; }
+body.beta-layout #mod-modal .mod-flag-actions .mod-act.ban:hover:not(:disabled){ background:rgba(224,80,90,0.16); color:#ffb3b9; }
+
+/* Pushing a panel past the edge of the launcher: a white line that brightens
+   the harder you push, then "Let go to pop out". */
+.sc-edge{ position:fixed; z-index:11000; pointer-events:none; opacity:0; transition:opacity .18s ease; --k:0; }
+.sc-edge.on{ opacity:1; }
+.sc-edge::before{
+  content:''; position:absolute; inset:0; border-radius:4px;
+  background:linear-gradient(var(--edge-dir, 180deg), transparent, #fff 16%, #fff 84%, transparent);
+  opacity:calc(0.35 + var(--k) * 0.65);
+  filter:drop-shadow(0 0 calc(3px + var(--k) * 12px) rgba(255,255,255,0.95));
+}
+.sc-edge.right{ top:40px; bottom:0; right:0; width:calc(2px + var(--k) * 2px); }
+.sc-edge.left{ top:40px; bottom:0; left:0; width:calc(2px + var(--k) * 2px); }
+.sc-edge.bottom{ left:0; right:0; bottom:0; height:calc(2px + var(--k) * 2px); --edge-dir:90deg; }
+.sc-edge.armed::before{ animation:sc-edge-pulse .9s ease-in-out infinite; }
+.sc-edge.on.fire::before{ animation:sc-edge-fire .5s cubic-bezier(.2,.8,.3,1) forwards; }
+@keyframes sc-edge-pulse{ 50%{ opacity:0.7; } }
+@keyframes sc-edge-fire{ 0%{ opacity:1; transform:scale(1); } 25%{ opacity:1; transform:scale(3.5, 1.02); } 100%{ opacity:0; transform:scale(1); } }
+.sc-edge.bottom.on.fire::before{ animation-name:sc-edge-fire-y; }
+@keyframes sc-edge-fire-y{ 0%{ opacity:1; transform:scale(1); } 25%{ opacity:1; transform:scale(1.02, 3.5); } 100%{ opacity:0; transform:scale(1); } }
+.sc-edge > span{
+  position:fixed; white-space:nowrap; padding:6px 12px; border-radius:999px;
+  background:#fff; color:#17122a; font-size:12px; font-weight:700; box-shadow:0 8px 24px rgba(0,0,0,0.45);
+  opacity:0; transform:scale(0.7); transition:opacity .15s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+}
+.sc-edge.right > span{ right:16px; top:var(--cy); translate:0 -50%; transform-origin:right center; }
+.sc-edge.left > span{ left:16px; top:var(--cy); translate:0 -50%; transform-origin:left center; }
+.sc-edge.bottom > span{ bottom:16px; left:var(--cx); translate:-50% 0; transform-origin:center bottom; }
+.sc-edge.armed > span{ opacity:1; transform:none; }
+:is(#live-chat, #mod-modal .mod-panel).sc-edge-armed{ outline:2px solid rgba(255,255,255,0.9); outline-offset:2px; }
+
+/* Dragging a popped-out window back over the launcher. */
+.sc-dock-hint{
+  position:fixed; inset:0; z-index:11000; pointer-events:none; opacity:0; transition:opacity .2s ease;
+  box-shadow:inset 0 0 0 3px #fff, inset 0 0 70px rgba(255,255,255,0.22);
+}
+.sc-dock-hint.on{ opacity:1; }
+.sc-dock-hint span{
+  position:absolute; left:50%; top:56px; translate:-50% 0; padding:7px 14px; border-radius:999px;
+  background:#fff; color:#17122a; font-size:12.5px; font-weight:700; box-shadow:0 10px 30px rgba(0,0,0,0.5);
+  transform:translateY(-8px) scale(0.85); transition:transform .4s cubic-bezier(.34,1.56,.64,1);
+}
+.sc-dock-hint.on span{ transform:none; }
+
+.sc-popbtn svg{ width:15px; height:15px; fill:currentColor; transition:transform .25s cubic-bezier(.34,1.56,.64,1); }
+.sc-popbtn:hover svg{ transform:translate(1px, -1px) scale(1.08); }
+body.beta-layout :is(#chat-chip, #mod-chip).sc-popped{ outline:1.5px dashed rgba(255,255,255,0.55); outline-offset:2px; }
+body.beta-layout :is(#chat-chip, #mod-chip).sc-popped::before{ transform:translateX(-50%) rotate(45deg) scale(0); opacity:0; }
+
+/* A panel in its own window fills it; the header moves the window. */
+body.sc-popdoc{ margin:0; overflow:hidden; background:#15112a; }
+body.sc-popdoc #mod-modal{ position:fixed; inset:0; display:block; pointer-events:auto; background:none !important; }
+body.sc-popdoc :is(#live-chat, #mod-modal .mod-panel){
+  position:fixed !important; inset:0 !important; width:auto !important; height:auto !important;
+  min-width:0 !important; max-width:none !important; min-height:0 !important; max-height:none !important;
+  margin:0 !important; border-radius:0 !important; translate:none !important;
+  background:linear-gradient(180deg, #1f1836 0%, #140f25 100%) !important;
+  -webkit-backdrop-filter:none !important; backdrop-filter:none !important;
+  border:1px solid rgba(255,255,255,0.12) !important; box-shadow:none !important;
+}
+body.sc-popdoc .liquid-glass > :is(.lq-backdrop, .lq-refract){ display:none !important; }
+body.sc-popdoc :is(.lc-rz, .mod-rz){ display:none !important; }
+body.sc-popdoc :is(.live-chat-head, .mod-head){ -webkit-app-region:drag; cursor:default; }
+body.sc-popdoc :is(.live-chat-head, .mod-head) :is(button, input, a, select, .live-chat-viewers){ -webkit-app-region:no-drag; }
+html.sc-merging::after{
+  content:''; position:fixed; inset:0; z-index:99999; pointer-events:none;
+  box-shadow:inset 0 0 0 3px #fff, inset 0 0 60px rgba(255,255,255,0.3);
+  animation:sc-merge-glow .9s ease-in-out infinite alternate;
+}
+@keyframes sc-merge-glow{ to{ box-shadow:inset 0 0 0 2px rgba(255,255,255,0.75), inset 0 0 30px rgba(255,255,255,0.15); } }
 
 /* Sidebar: a bar slides to the page you're on, the icon hops, a ripple spreads. */
 .sidebar > #nav-ink{ display:none; }
@@ -5765,6 +5901,58 @@ mark.cs-hit{ background:color-mix(in srgb, #ffd166 35%, transparent); color:#fff
 .cs-saved-acts button[data-a="jump"]:hover{ background:var(--accent); }
 .cs-saved-empty{ display:flex; flex-direction:column; align-items:center; gap:10px; padding:28px 22px; text-align:center; font-size:12.5px; line-height:1.5; color:rgba(255,255,255,0.5); }
 .cs-saved-empty svg{ width:26px; height:26px; fill:rgba(255,255,255,0.25); }
+
+/* ---- mentions inbox ---- */
+.cs-inbox .cs-saved-item{ cursor:pointer; }
+.cs-inbox .cs-saved-item.unread{ background:rgba(245,197,66,0.07); box-shadow:inset 2px 0 0 #f5c542; }
+.cs-inbox .cs-saved-item.unread:hover{ background:rgba(245,197,66,0.11); }
+.cs-inbox .cs-saved-meta span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* ---- ignored people, nicknames, text size, pinned communities ---- */
+.cs-msg.cs-ignored{
+  display:flex; align-items:center; gap:10px; margin:2px 0; padding:4px 10px 4px 52px;
+  font-size:12px; font-style:italic; color:rgba(255,255,255,0.35);
+}
+.cs-msg.cs-ignored button{
+  padding:2px 8px; border:0; border-radius:6px; cursor:pointer; font:600 11px 'Segoe UI', sans-serif; font-style:normal;
+  background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.6);
+}
+.cs-msg.cs-ignored button:hover{ background:rgba(255,255,255,0.12); color:#fff; }
+.cs-real-name{ margin-left:6px; font-style:normal; font-size:11px; font-weight:500; color:rgba(255,255,255,0.38); }
+.cs-person-ignored{ font-size:10.5px; font-weight:600; color:rgba(255,255,255,0.4); padding:1px 6px; border-radius:5px; border:1px solid rgba(255,255,255,0.12); }
+#community-stage.cs-size-s .cs-msgs{ zoom:0.9; }
+#community-stage.cs-size-l .cs-msgs{ zoom:1.14; }
+body.beta-layout .rail-comm-wrap.pinned::after{
+  content:''; position:absolute; left:calc(50% - 22px); top:2px; width:6px; height:6px; border-radius:50%;
+  background:rgba(255,255,255,0.75); pointer-events:none;
+}
+
+/* ---- Ctrl+J channel switcher ---- */
+.cs-qs{ position:fixed; inset:0; z-index:9500; display:flex; justify-content:center; align-items:flex-start; padding-top:14vh; background:rgba(5,3,12,0.45); animation:cs-qs-fade .16s ease; }
+@keyframes cs-qs-fade{ from{ opacity:0; } }
+.cs-qs-card{
+  width:min(520px, 90vw); display:flex; flex-direction:column; overflow:hidden; border-radius:14px;
+  background:rgba(18,15,28,0.99); border:1px solid rgba(255,255,255,0.1); box-shadow:0 30px 80px -20px rgba(0,0,0,0.9);
+  animation:sc-pop-down .38s cubic-bezier(.2,.9,.25,1); transform-origin:50% 0;
+}
+.cs-qs-in{ height:52px; padding:0 18px; border:0; border-bottom:1px solid rgba(255,255,255,0.08); background:none; color:#fff; font:500 16px 'Segoe UI', sans-serif; outline:none; }
+.cs-qs-in::placeholder{ color:rgba(255,255,255,0.35); }
+.cs-qs-list{ max-height:min(380px, 52vh); overflow:auto; padding:6px; scrollbar-width:thin; }
+.cs-qs-row{
+  display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border:0; border-radius:9px; cursor:pointer;
+  background:none; color:rgba(255,255,255,0.8); font:500 13.5px 'Segoe UI', sans-serif; text-align:left;
+}
+.cs-qs-row.sel{ background:rgba(255,255,255,0.08); color:#fff; }
+.cs-qs-row.here b::after{ content:'you are here'; margin-left:8px; font-size:10.5px; font-weight:500; color:rgba(255,255,255,0.35); }
+.cs-qs-glyph{ display:grid; place-items:center; width:20px; color:rgba(255,255,255,0.45); font-weight:700; }
+.cs-qs-glyph svg{ width:15px; height:15px; fill:currentColor; }
+.cs-qs-row b{ font-weight:600; }
+.cs-qs-row em{ margin-left:auto; font-style:normal; font-size:12px; color:rgba(255,255,255,0.4); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:45%; }
+.cs-qs-badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; display:grid; place-items:center; font:700 10.5px 'Segoe UI', sans-serif; font-style:normal; color:#fff; background:#e5484d; }
+.cs-qs-dot{ width:7px; height:7px; border-radius:50%; background:#fff; }
+.cs-qs-none{ padding:22px; text-align:center; font-size:13px; color:rgba(255,255,255,0.45); }
+.cs-qs-foot{ display:flex; gap:16px; padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); font-size:11.5px; color:rgba(255,255,255,0.4); }
+.cs-qs-foot kbd{ display:inline-grid; place-items:center; min-width:18px; height:18px; margin-right:3px; padding:0 4px; border-radius:5px; background:rgba(255,255,255,0.08); font:600 10.5px 'Segoe UI', sans-serif; color:rgba(255,255,255,0.7); }
 .toast.cs-toast{ cursor:pointer; }
 .cs-toast-where{ display:block; font-size:11.5px; font-weight:500; opacity:.6; }
 

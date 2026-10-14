@@ -115,6 +115,8 @@ const api = {
   modAccess: () => ipcRenderer.invoke('mod:access'),
   modRequest: (d) => ipcRenderer.invoke('mod:request', d),
   onModEvent: (cb) => ipcRenderer.on('mod:event', (_e, p) => cb(p)),
+  onPopoutHover: (cb) => ipcRenderer.on('popout:hover', (_e, p) => cb(p)),
+  onPopoutDock: (cb) => ipcRenderer.on('popout:dock', (_e, p) => cb(p)),
   modFile: (d) => ipcRenderer.invoke('mod:file', d),
   reportSend: (d) => ipcRenderer.invoke('report:send', d),
 
