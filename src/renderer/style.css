@@ -4454,24 +4454,19 @@ body.beta-layout #mod-modal .mod-pane:not(.hidden){ animation:sc-pane-in .26s cu
 /* ---------- Live chat (beta) ---------- */
 body.beta-layout #live-chat.liquid-glass{ width:420px; min-width:320px; }
 body.beta-layout #live-chat{
-  display:grid; grid-template-columns:minmax(0, 1fr) auto;
+  display:grid; grid-template-columns:minmax(0, 1fr);
   grid-template-rows:auto auto auto minmax(0, 1fr) auto;
-  grid-template-areas:"head head" "note note" "search search" "list people" "compose compose";
+  grid-template-areas:"head" "note" "search" "list" "compose";
 }
 body.beta-layout #live-chat > .live-chat-head{ grid-area:head; }
 body.beta-layout #live-chat > .lc-note{ grid-area:note; }
 body.beta-layout #live-chat > .lc-searchbar{ grid-area:search; }
 body.beta-layout #live-chat > .live-chat-list{ grid-area:list; }
-body.beta-layout #live-chat > .lc-people{ grid-area:people; }
 body.beta-layout #live-chat > .live-chat-compose{ grid-area:compose; }
 body.beta-layout #live-chat .live-chat-head{ gap:8px; padding:12px 10px 10px 14px; border-bottom:1px solid rgba(255,255,255,0.08); }
-body.beta-layout #live-chat .live-chat-viewers{ padding:3px; gap:0; border-radius:8px; background:none; border:0; box-shadow:none; cursor:pointer; transition:background-color .12s; }
-body.beta-layout #live-chat .live-chat-viewers:hover,
-body.beta-layout #live-chat:is(.lc-people-peek, .sc-wide.lc-has-people) .live-chat-viewers{ background:rgba(255,255,255,0.08); }
-body.beta-layout #live-chat :is(.lcv-live, .lcv-count){ display:none; }
-body.beta-layout #live-chat .lcv-face{ width:20px; height:20px; border-radius:6px; box-shadow:0 0 0 2px #1d1830; }
-body.beta-layout #live-chat .lcv-more{ width:auto; min-width:20px; height:20px; border-radius:6px; background:rgba(255,255,255,0.16); box-shadow:0 0 0 2px #1d1830; font-size:10px; font-weight:700; }
-body.beta-layout #live-chat.sc-narrow .live-chat-viewers{ display:none; }
+body.beta-layout #live-chat .live-chat-viewers{ min-width:0; flex-shrink:1; }
+body.beta-layout #live-chat:not(.sc-wide) .lcv-faces{ display:none; }
+body.beta-layout #live-chat .live-chat-titles{ min-width:76px; }
 body.beta-layout #live-chat .lc-note{ gap:6px; padding:6px 14px; font-size:11.5px; font-weight:500; color:rgba(255,255,255,0.48); background:none; border-bottom:1px solid rgba(255,255,255,0.06); }
 body.beta-layout #live-chat .lc-note svg{ width:13px; height:13px; fill:rgba(255,255,255,0.4); }
 
@@ -4556,26 +4551,6 @@ body.beta-layout #live-chat.lc-compact .lc-text{ font-size:13px; line-height:1.3
 .lc-empty b{ font-size:14px; font-weight:600; color:rgba(255,255,255,0.85); }
 .lc-empty-ic{ display:grid; place-items:center; width:42px; height:42px; margin-bottom:8px; border-radius:12px; background:rgba(255,255,255,0.06); }
 .lc-empty-ic svg{ width:20px; height:20px; fill:rgba(255,255,255,0.45); }
-
-/* Who's here: a column when the box is wide, a drawer when it isn't. */
-body.beta-layout #live-chat > .lc-people{ display:none; }
-body.beta-layout #live-chat.sc-wide.lc-has-people > .lc-people,
-body.beta-layout #live-chat.lc-people-peek > .lc-people{
-  display:flex; flex-direction:column; gap:1px; width:170px; min-height:0; overflow-y:auto; padding:10px 8px;
-  border-left:1px solid rgba(255,255,255,0.07);
-}
-body.beta-layout #live-chat.lc-people-peek:not(.sc-wide.lc-has-people) > .lc-people{
-  grid-area:list; justify-self:end; z-index:5 !important; background:rgba(20,16,34,0.97); box-shadow:-12px 0 28px rgba(0,0,0,0.4);
-  animation:lc-drawer .26s cubic-bezier(.2,.9,.25,1);
-}
-@keyframes lc-drawer{ from{ opacity:0; transform:translateX(16px); } to{ opacity:1; transform:none; } }
-.lc-people-head{ padding:2px 6px 6px; font-size:12px; font-weight:600; color:rgba(255,255,255,0.55); }
-.lc-people-head em{ font-style:normal; color:rgba(255,255,255,0.35); margin-left:3px; }
-.lc-person{ display:flex; align-items:center; gap:8px; min-width:0; padding:5px 6px; border-radius:7px; font-size:12.5px; font-weight:500; color:rgba(255,255,255,0.82); cursor:pointer; }
-.lc-person:hover{ background:rgba(255,255,255,0.06); color:#fff; }
-.lc-person img{ width:22px; height:22px; border-radius:6px; image-rendering:pixelated; background:rgba(0,0,0,0.3); flex-shrink:0; }
-.lc-person span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.lc-people-more{ padding:6px; font-size:11.5px; color:rgba(255,255,255,0.4); }
 
 body.beta-layout #live-chat .live-chat-compose{ position:relative; flex-wrap:wrap; align-items:center; gap:6px; padding:10px 10px 12px 12px; border-top:1px solid rgba(255,255,255,0.08); }
 body.beta-layout #live-chat .live-chat-compose input{ flex:1 1 140px; min-width:0; height:36px; padding:0 12px; border-radius:10px; background:rgba(0,0,0,0.3); border:1px solid transparent; font-size:13px; }
@@ -4673,7 +4648,7 @@ pre.sc-code{ margin:4px 0; padding:8px 10px; border-radius:8px; background:rgba(
   animation:sc-pop-down .5s cubic-bezier(.2,.9,.25,1) both;
   transform-origin:var(--pop-ox, 50%) -24px;
 }
-:is(#mod-modal .mod-panel, #live-chat, #online-pop).sc-pop > :not(.lq-backdrop, .lq-refract, .lq-tint, .lq-specular, .lq-shine, .lc-rz, .mod-rz){
+:is(#mod-modal .mod-panel, #live-chat, #online-pop).sc-pop > :not(.lq-backdrop, .lq-refract, .lq-tint, .lq-specular, .lq-shine, .lc-rz, .mod-rz, .op-rz){
   animation:sc-pop-child .42s cubic-bezier(.2,.9,.25,1) both;
 }
 :is(#mod-modal .mod-panel, #live-chat, #online-pop).sc-pop > :is(.mod-head, .live-chat-head, .op-head){ animation-delay:60ms; }
@@ -4693,36 +4668,114 @@ pre.sc-code{ margin:4px 0; padding:8px 10px; border-radius:8px; background:rgba(
 @keyframes sc-pop-up{ from{ opacity:1; transform:none; } to{ opacity:0; transform:translateY(-10px) scale(0.94, 0.7); } }
 @keyframes sc-pop-child{ from{ opacity:0; transform:translateY(-8px); } to{ opacity:1; transform:none; } }
 
-/* Top-bar buttons (beta): sheen on hover, springy squash + glow ring on click,
-   and the chip whose panel is open stays pressed in with a tab pointing at it. */
+/* Top-bar buttons (beta): lift on hover with a quick sheen, sink on press,
+   spring back with a ripple from where you clicked, and the chip whose panel
+   is open stays pressed in with a tab pointing at it. */
 body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip){
   position:relative; isolation:isolate;
-  transition:transform .5s cubic-bezier(.34,1.56,.64,1), filter .2s ease, box-shadow .35s ease;
+  transition:transform .45s cubic-bezier(.34,1.56,.64,1), filter .2s ease, box-shadow .3s ease;
 }
 body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip)::after{
   content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; z-index:2;
-  background:linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.38) 50%, transparent 62%) no-repeat;
+  background:linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.28) 50%, transparent 60%) no-repeat;
   background-size:260% 100%; background-position:130% 0; opacity:0;
 }
 body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):hover::after{
-  animation:sc-chip-sheen .75s cubic-bezier(.3,.7,.3,1) forwards;
+  animation:sc-chip-sheen .6s cubic-bezier(.3,.7,.3,1) forwards;
 }
 @keyframes sc-chip-sheen{ 0%{ opacity:1; background-position:130% 0; } 100%{ opacity:1; background-position:-30% 0; } }
 body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):hover{
-  transform:translateY(-2px);
-  box-shadow:0 8px 18px -8px var(--accent-glow);
+  transform:translateY(-1px) scale(1.04);
+  box-shadow:0 6px 16px -6px var(--accent-glow);
 }
 body.beta-layout :is(#update-chip, #online-indicator, #ingame-indicator, #chat-chip, #mod-chip):active{
-  transform:translateY(1px) scale(0.9, 0.86); transition-duration:.09s;
+  transform:scale(0.93); transition-duration:.08s;
 }
-body.beta-layout .sc-chip-press{ animation:sc-chip-press .62s cubic-bezier(.2,.9,.25,1); }
+body.beta-layout .sc-chip-press{ animation:sc-chip-press .5s cubic-bezier(.2,.9,.25,1); }
 @keyframes sc-chip-press{
-  0%{ transform:scale(0.9, 0.86); box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
-  35%{ transform:scale(1.08, 1.1); }
-  60%{ transform:scale(0.97, 0.96); }
-  80%{ transform:scale(1.015); }
-  100%{ transform:none; box-shadow:0 0 0 12px transparent; }
+  0%{ transform:scale(0.93); }
+  40%{ transform:scale(1.06); }
+  70%{ transform:scale(0.99); }
+  100%{ transform:none; }
 }
+
+/* Click ripple (beta): spreads from the pointer, clipped to the button's shape. */
+sc-rip{ display:block; position:absolute; inset:0; margin:0; padding:0; border-radius:inherit; overflow:hidden; pointer-events:none; z-index:3; }
+sc-rip-dot{
+  display:block; position:absolute; left:var(--x); top:var(--y); width:var(--d); height:var(--d);
+  margin:calc(var(--d) / -2) 0 0 calc(var(--d) / -2); border-radius:50%;
+  background:radial-gradient(circle, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.16) 55%, transparent 70%);
+  transform:scale(0); animation:sc-rip .55s cubic-bezier(.2,.8,.3,1) forwards;
+}
+@keyframes sc-rip{ 60%{ opacity:1; } to{ transform:scale(1); opacity:0; } }
+
+/* Small icon buttons in panel headers: icon grows on hover, button sinks and springs back. */
+body.beta-layout :is(.sc-hbtn, .mod-icon-btn, .live-chat-x){
+  transition:background-color .15s, color .15s, transform .4s cubic-bezier(.34,1.56,.64,1);
+}
+body.beta-layout :is(.sc-hbtn, .mod-icon-btn, .live-chat-x):active{ transform:scale(0.84); transition-duration:.08s; }
+body.beta-layout :is(.sc-hbtn, .mod-icon-btn) svg{ transition:transform .35s cubic-bezier(.34,1.56,.64,1); }
+body.beta-layout :is(.sc-hbtn, .mod-icon-btn):hover svg{ transform:scale(1.14); }
+body.beta-layout :is(#live-chat, #online-pop, #mod-modal) .live-chat-x{ transition:background-color .15s, color .15s, transform .4s cubic-bezier(.34,1.56,.64,1); }
+body.beta-layout :is(#live-chat, #online-pop, #mod-modal) .live-chat-x:hover{ transform:rotate(90deg); }
+body.beta-layout :is(#live-chat, #online-pop, #mod-modal) .live-chat-x:hover:active{ transform:rotate(90deg) scale(0.84); transition-duration:.08s; }
+
+/* Purple boxes (beta), same look as the top-bar buttons: online tabs and
+   groups, admin tabs and filters. Dim until picked, full purple when on. */
+body.beta-layout :is(#online-pop .op-views button, #online-pop .op-group, #mod-modal .mod-tab, #mod-modal .mod-filter button){
+  position:relative; display:inline-flex; align-items:center; gap:6px; flex-shrink:0;
+  height:26px; padding:0 11px; border-radius:999px; border:2px solid #000; box-shadow:none;
+  background:linear-gradient(160deg, color-mix(in srgb, var(--btn-top, #835ecd) 48%, #120e1f), color-mix(in srgb, var(--btn-bot, #3c295c) 60%, #0c0915));
+  color:rgba(255,255,255,0.78); font:inherit; font-size:10.5px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase;
+  -webkit-text-stroke:2px #000; paint-order:stroke fill; white-space:nowrap; cursor:pointer;
+  transition:transform .4s cubic-bezier(.34,1.56,.64,1), color .15s, box-shadow .25s, filter .15s;
+}
+body.beta-layout :is(#online-pop .op-views button, #online-pop .op-group, #mod-modal .mod-tab, #mod-modal .mod-filter button):hover{
+  color:#fff; transform:translateY(-1px); filter:brightness(1.18);
+}
+body.beta-layout :is(#online-pop .op-views button, #online-pop .op-group, #mod-modal .mod-tab, #mod-modal .mod-filter button):active{
+  transform:scale(0.93); transition-duration:.08s;
+}
+body.beta-layout :is(#online-pop .op-views button.on, #mod-modal .mod-tab.active, #mod-modal .mod-filter button.on){
+  color:#fff; background:linear-gradient(160deg, var(--btn-top, #835ecd), var(--btn-bot, #3c295c));
+  box-shadow:inset 0 2px 6px rgba(0,0,0,0.4), 0 0 14px -4px var(--accent-glow);
+}
+body.beta-layout :is(#online-pop .op-views button, #mod-modal .mod-tab, #mod-modal .mod-filter button) :is(span, .mod-count){
+  min-width:0; height:16px; margin:0; padding:0 5px; border-radius:999px; line-height:16px; order:1;
+  background:rgba(0,0,0,0.38); color:rgba(255,255,255,0.85); font-size:9.5px; font-weight:800; letter-spacing:0;
+  -webkit-text-stroke:0; font-variant-numeric:tabular-nums;
+}
+body.beta-layout #mod-modal .mod-tab :is(.mod-count.has), body.beta-layout #mod-modal .mod-tab.has .mod-count{ background:#e0505a; color:#fff; }
+body.beta-layout #mod-modal .mod-tab > span:not(.mod-count){ order:0; height:auto; padding:0; background:none; font-size:inherit; color:inherit; -webkit-text-stroke:inherit; letter-spacing:inherit; }
+body.beta-layout #mod-modal .mod-tab .mod-count:empty{ display:none; }
+body.beta-layout #mod-modal .mod-tabs{ gap:6px; padding:10px 14px; }
+body.beta-layout #mod-modal .mod-tab::after{ display:none; }
+body.beta-layout #mod-modal .mod-filter{ gap:6px; margin:0 0 10px; }
+body.beta-layout #mod-modal .mod-filter button{ height:24px; padding:0 9px; font-size:10px; }
+body.beta-layout #online-pop .op-views{ gap:5px; padding:8px 12px 10px; overflow-x:auto; scrollbar-width:none; }
+body.beta-layout #online-pop .op-views::-webkit-scrollbar{ display:none; }
+body.beta-layout #online-pop .op-views-ink{ display:none; }
+body.beta-layout #online-pop .op-views button{ gap:5px; padding:0 8px; letter-spacing:0.3px; }
+body.beta-layout #online-pop .op-group{ width:auto; align-self:flex-start; height:22px; margin:10px 0 4px 2px; padding:0 9px; font-size:10px; }
+body.beta-layout #online-pop .op-group:first-child{ margin-top:6px; padding-top:0; }
+body.beta-layout #online-pop .op-group svg{ stroke:#fff; }
+body.beta-layout #online-pop .op-group em{ height:14px; padding:0 5px; border-radius:999px; line-height:14px; background:rgba(0,0,0,0.38); color:rgba(255,255,255,0.85); font-size:9.5px; -webkit-text-stroke:0; }
+
+/* Who's online (beta): drag it by the header, resize from the corners. */
+body.beta-layout #online-pop.op-beta{ width:360px; }
+body.beta-layout #online-pop .op-head{ cursor:grab; user-select:none; }
+body.beta-layout #online-pop.dragging .op-head{ cursor:grabbing; }
+#online-pop.dragging, #online-pop.resizing{ transition:none !important; user-select:none; }
+#online-pop > .op-rz{ position:absolute !important; z-index:6 !important; width:16px; height:16px; }
+#online-pop > .op-rz.nw{ top:0; left:0; cursor:nwse-resize; }
+#online-pop > .op-rz.ne{ top:0; right:0; cursor:nesw-resize; }
+#online-pop > .op-rz.sw{ bottom:0; left:0; cursor:nesw-resize; }
+#online-pop > .op-rz.se{ bottom:0; right:0; cursor:nwse-resize; }
+#online-pop > .op-rz.se::after{
+  content:''; position:absolute; right:4px; bottom:4px; width:8px; height:8px;
+  border-right:2px solid rgba(255,255,255,0.35); border-bottom:2px solid rgba(255,255,255,0.35); border-bottom-right-radius:4px;
+}
+#online-pop > .op-rz.se:hover::after{ border-color:rgba(255,255,255,0.7); }
 body.beta-layout :is(#online-indicator, #chat-chip, #mod-chip).open,
 body.beta-layout #updates-menu-wrap.open #update-chip{
   filter:brightness(1.22);
@@ -4745,8 +4798,6 @@ body.beta-layout :is(#mod-modal .mod-shield, #live-chat .lc-icon, .lc-empty-ic, 
 body.beta-layout #live-chat > .lc-note{ display:none; }
 body.beta-layout #live-chat #live-chat-send{ background:var(--accent); border:0; border-radius:8px; padding:0 16px; font-weight:600; color:#fff; }
 body.beta-layout #live-chat #live-chat-send:hover:not(:disabled){ filter:brightness(1.1); }
-body.beta-layout #mod-modal .mod-tab .mod-count{ min-width:0; padding:0; background:none; color:rgba(255,255,255,0.38); }
-body.beta-layout #mod-modal :is(.mod-tab.has .mod-count, .mod-tab .mod-count.has){ background:none; color:#ff7a84; }
 body.beta-layout #mod-modal .mod-tag{ padding:0; background:none; font-size:11.5px; font-weight:500; }
 body.beta-layout #mod-modal :is(.mod-tag.why, .mod-tag.perm){ background:none; }
 body.beta-layout #mod-modal :is(.mod-tag.swear, .mod-tag.temp){ background:none; }
@@ -4816,9 +4867,15 @@ body.sc-popdoc :is(#live-chat, #mod-modal .mod-panel){
   margin:0 !important; border-radius:0 !important; translate:none !important;
   background:linear-gradient(180deg, #1f1836 0%, #140f25 100%) !important;
   -webkit-backdrop-filter:none !important; backdrop-filter:none !important;
-  border:1px solid rgba(255,255,255,0.12) !important; box-shadow:none !important;
+  border:0 !important; outline:0 !important; box-shadow:none !important;
 }
-body.sc-popdoc .liquid-glass > :is(.lq-backdrop, .lq-refract){ display:none !important; }
+/* Windows rounds the window itself; nothing inside may draw its own square
+   edge or rounded rim, or you see a box inside a box. */
+html:has(body.sc-popdoc), body.sc-popdoc{ background:#1a142e; }
+body.sc-popdoc :is(#live-chat, #mod-modal .mod-panel)::before,
+body.sc-popdoc :is(#live-chat, #mod-modal .mod-panel)::after{ display:none !important; }
+body.sc-popdoc .liquid-glass > :is(.lq-backdrop, .lq-refract, .lq-specular, .lq-shine){ display:none !important; }
+body.sc-popdoc .liquid-glass > .lq-tint{ border-radius:0 !important; }
 body.sc-popdoc :is(.lc-rz, .mod-rz){ display:none !important; }
 body.sc-popdoc :is(.live-chat-head, .mod-head){ -webkit-app-region:drag; cursor:default; }
 body.sc-popdoc :is(.live-chat-head, .mod-head) :is(button, input, a, select, .live-chat-viewers){ -webkit-app-region:no-drag; }

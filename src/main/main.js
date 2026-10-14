@@ -520,8 +520,8 @@ function routePopupsToBrowser(webContents) {
       const height = Math.round(Math.max(320, Math.min(Number.isFinite(f.height) ? f.height : 560, 1400)));
       const opts = {
         width, height, minWidth: 330, minHeight: 320,
-        frame: false, show: true, maximizable: false, fullscreenable: false,
-        backgroundColor: '#15112a', icon: APP_ICON, title: 'SolarClient',
+        frame: false, roundedCorners: true, show: true, maximizable: false, fullscreenable: false,
+        backgroundColor: '#1a142e', icon: APP_ICON, title: 'SolarClient',
       };
       if (Number.isFinite(f.left) && Number.isFinite(f.top)) {
         const { screen } = require('electron');

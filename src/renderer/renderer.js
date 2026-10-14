@@ -6924,6 +6924,35 @@ function popDown(panel, chip) {
   chip?.classList.add('sc-chip-press');
 }
 
+const SC_RIPPLE = [
+  '#update-chip', '#online-indicator', '#ingame-indicator', '#chat-chip', '#mod-chip',
+  '#mod-modal .mod-tab', '#mod-modal .mod-filter button', '#mod-modal .mod-act', '#mod-modal .pill-btn',
+  '#online-pop .op-views button', '#online-pop .op-group', '#online-pop .op-act',
+  '#live-chat-send', '.sc-hbtn', '.mod-icon-btn', '.live-chat-x',
+].join(', ');
+
+/** Beta: a ripple spreads from where you pressed. */
+function scRipple(e) {
+  if (e.button !== 0 || scMotionOff()) return;
+  const el = e.target.closest?.(SC_RIPPLE);
+  if (!el || el.disabled) return;
+  const doc = el.ownerDocument;
+  const r = el.getBoundingClientRect();
+  const k = el.offsetWidth ? r.width / el.offsetWidth : 1;
+  if (doc.defaultView.getComputedStyle(el).position === 'static') el.style.position = 'relative';
+  const wrap = doc.createElement('sc-rip');
+  const dot = doc.createElement('sc-rip-dot');
+  const x = (e.clientX - r.left) / k, y = (e.clientY - r.top) / k;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  dot.style.setProperty('--x', `${x}px`);
+  dot.style.setProperty('--y', `${y}px`);
+  dot.style.setProperty('--d', `${Math.hypot(Math.max(x, w - x), Math.max(y, h - y)) * 2}px`);
+  wrap.appendChild(dot);
+  el.appendChild(wrap);
+  setTimeout(() => wrap.remove(), 650);
+}
+document.addEventListener('pointerdown', scRipple, true);
+
 /** Beta: fold a panel back up into its button, then run hide(). */
 function popClose(panel, hide) {
   if (!panel || scMotionOff() || panel.classList.contains('hidden') || panel._scQuiet) { panel && (panel._scQuiet = false); hide(); return; }
@@ -6959,6 +6988,7 @@ function scFloatPaintBtn(f) {
 function scFloatAdd(key, o) {
   const f = { ...o, key, win: null };
   scFloat.set(key, f);
+  if (o.noPop) return f;
   f.btn = document.createElement('button');
   f.btn.type = 'button';
   f.btn.className = `${o.btnClass} sc-popbtn beta-only`;
@@ -6978,54 +7008,83 @@ function scFloatAdd(key, o) {
   return f;
 }
 
+/** Where a floating panel is headed (its resting spot, ignoring any glide in progress). */
+function scFloatRect(o) {
+  const r = o.panel.getBoundingClientRect();
+  return o.glide ? { left: o.glide.x, top: o.glide.y, right: o.glide.x + r.width, bottom: o.glide.y + r.height, width: r.width, height: r.height } : r;
+}
+
+const scOverlap = (a, b, pad = 0) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left) + pad)
+  * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) + pad);
+
 /**
- * Knock any other open panel out from under this one. It hops over to the
- * side this one came from (they swap), or the other side if that's full.
+ * Slide any other open panel out from under this one, to the closest spot
+ * beside, above or below it that's on screen and clear of every other
+ * panel. Re-aiming mid-glide starts from wherever it is, so it never snaps.
  */
 function scFloatBump(f, { force = false } = {}) {
-  if (!betaLayoutOn() || f.win) return;
+  if (!betaLayoutOn() || f.win || !f.isOpen()) return;
   const a = f.panel.getBoundingClientRect();
-  const gap = 12;
-  for (const o of scFloat.values()) {
-    if (o === f || o.win || (o.bumping && !force) || !o.isOpen()) continue;
-    const b = o.panel.getBoundingClientRect();
-    if (!b.width || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top) continue;
-    const W = window.innerWidth;
-    const fits = (x) => x >= 8 && x + b.width <= W - 8;
-    const at = { 1: a.right + gap, '-1': a.left - gap - b.width };
-    const side = f.dragDir ? -f.dragDir : (b.left + b.width / 2 >= a.left + a.width / 2 ? 1 : -1);
-    let x = at[side];
-    if (!fits(x)) x = fits(at[-side]) ? at[-side] : Math.max(8, Math.min(x, W - b.width - 8));
-    if (Math.abs(x - b.left) < 2) continue;
-    const dir = x >= b.left ? 1 : -1;
-    o.bumping = true;
-    o.bumpAnim?.cancel();
-    o.place(x, b.top);
-    if (!scMotionOff()) {
-      const now = o.panel.getBoundingClientRect();
-      const ox = b.left - now.left, oy = b.top - now.top;
-      o.bumpAnim = o.panel.animate([
-        { translate: `${ox}px ${oy}px`, transform: 'none' },
-        { translate: `${ox + dir * 14}px ${oy}px`, transform: 'scale(0.93, 1.05)', offset: 0.14 },
-        { translate: `${dir * 10}px 0px`, transform: 'scale(1.03, 0.98)', offset: 0.55 },
-        { translate: `${dir * -3}px 0px`, transform: 'scale(0.995, 1.005)', offset: 0.8 },
-        { translate: '0px 0px', transform: 'none' },
-      ], { duration: 560, easing: 'cubic-bezier(.2,.8,.3,1)' });
-      o.panel.style.transformOrigin = dir > 0 ? 'left center' : 'right center';
+  const gap = 14, W = window.innerWidth, H = window.innerHeight;
+  const others = [...scFloat.values()].filter((o) => o !== f && !o.win && o.isOpen());
+  for (const o of others) {
+    const b = scFloatRect(o);
+    if (!b.width) continue;
+    const hit = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const hitY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    // Grazing contact while dragging isn't worth moving for; on drop any overlap is.
+    if (hit <= 0 || hitY <= 0 || (!force && Math.min(hit, hitY) < 18)) continue;
+    const clampY = (y) => Math.max(40, Math.min(y, H - b.height - 8));
+    const clampX = (x) => Math.max(8, Math.min(x, W - b.width - 8));
+    // Against a wall the gap can shrink to 4px rather than sending it across the screen.
+    const tuck = (want, tight, lo, hi) => (want < lo && tight >= lo ? lo : want > hi && tight <= hi ? hi : want);
+    const spots = [
+      { x: tuck(a.right + gap, a.right + 4, 8, W - b.width - 8), y: clampY(b.top) },
+      { x: tuck(a.left - gap - b.width, a.left - 4 - b.width, 8, W - b.width - 8), y: clampY(b.top) },
+      { x: clampX(b.left), y: tuck(a.bottom + gap, a.bottom + 4, 40, H - b.height - 8) },
+      { x: clampX(b.left), y: tuck(a.top - gap - b.height, a.top - 4 - b.height, 40, H - b.height - 8) },
+    ];
+    const box = (s) => ({ left: s.x, top: s.y, right: s.x + b.width, bottom: s.y + b.height });
+    const onScreen = (s) => s.x >= 8 && s.x + b.width <= W - 8 && s.y >= 40 && s.y + b.height <= H - 8;
+    const blocked = (s) => others.some((p) => p !== o && scOverlap(box(s), scFloatRect(p)) > 0);
+    // Sideways reads as "out of the way"; vertical hops cost a little more.
+    const cost = (s, i) => Math.hypot(s.x - b.left, (s.y - b.top) * 1.25) + (i >= 2 ? 40 : 0);
+    let best = spots.map((s, i) => ({ s, c: cost(s, i) })).filter(({ s }) => onScreen(s) && !blocked(s))
+      .sort((p, q) => p.c - q.c)[0]?.s;
+    if (!best) {
+      // Nowhere fully clear: pick the edge that leaves the least overlap.
+      best = [{ x: 8, y: clampY(b.top) }, { x: W - b.width - 8, y: clampY(b.top) }]
+        .sort((p, q) => scOverlap(box(p), a) - scOverlap(box(q), a))[0];
     }
-    clearTimeout(o.bumpTimer);
-    o.bumpTimer = setTimeout(() => { o.bumping = false; o.panel.style.transformOrigin = ''; o.save(); }, 560);
+    if (Math.abs(best.x - b.left) < 2 && Math.abs(best.y - b.top) < 2) continue;
+    scFloatGlide(o, best.x, best.y);
   }
+}
+
+function scFloatGlide(o, x, y) {
+  const seen = o.panel.getBoundingClientRect();
+  o.glideAnim?.cancel();
+  o.place(x, y);
+  const now = o.panel.getBoundingClientRect();
+  o.glide = { x: now.left, y: now.top };
+  const done = () => { o.glide = null; o.glideAnim = null; o.save(); };
+  if (scMotionOff()) { done(); return; }
+  const dx = seen.left - now.left, dy = seen.top - now.top;
+  const anim = o.panel.animate(
+    [{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }],
+    { duration: Math.min(520, 300 + Math.hypot(dx, dy) * 0.35), easing: 'cubic-bezier(.22,1,.36,1)' },
+  );
+  o.glideAnim = anim;
+  anim.onfinish = anim.oncancel = () => { if (o.glideAnim === anim) done(); };
 }
 
 let scEdgeEl = null;
 /** During a header drag. want = where the panel is trying to go before it's kept on screen. */
 function scFloatDrag(f, ev, want) {
   if (!f || !betaLayoutOn()) return;
-  const moved = want.x - (f.lastWantX ?? want.x);
-  if (Math.abs(moved) > 1) f.dragDir = Math.sign(moved);
-  f.lastWantX = want.x;
+  f.glideAnim?.cancel();
   scFloatBump(f);
+  if (f.noPop) return;
   const W = window.innerWidth, H = window.innerHeight;
   let side = null, push = 0;
   for (const [s, p] of [['right', want.x + want.w - (W - 8)], ['left', 8 - want.x], ['bottom', (ev.clientY - (H - 4)) * 2.5]]) {
@@ -7068,12 +7127,10 @@ function scFloatDrop(f, ev, grab) {
   if (!f) return false;
   const edge = f.edge;
   if (!edge?.armed) {
-    scEdgeHide(f);
+    if (!f.noPop) scEdgeHide(f);
     scFloatBump(f, { force: true });
-    f.dragDir = 0; f.lastWantX = null;
     return false;
   }
-  f.dragDir = 0; f.lastWantX = null;
   f.edge = null;
   scPopOut(f.key, { side: edge.side, ev, grab });
   return true;
@@ -7145,6 +7202,7 @@ function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
   });
   const dropFloaters = (keep) => d.querySelectorAll(SC_FLOATERS).forEach((m) => { if (!keep || !m.contains(keep)) m.remove(); });
   d.addEventListener('pointerdown', (e) => { scPop.active = d; dropFloaters(e.target); }, true);
+  d.addEventListener('pointerdown', scRipple, true);
   d.addEventListener('keydown', (e) => { if (e.key === 'Escape' && d.querySelector(SC_FLOATERS)) { e.stopPropagation(); dropFloaters(null); } }, true);
   win.addEventListener('focus', () => { scPop.active = d; });
   win.addEventListener('pagehide', () => { if (f.win === win) scDock(key, { gone: true }); });
@@ -8116,13 +8174,112 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     ink.style.transform = `translateX(${on.offsetLeft}px)`;
   }
 
+  // Beta: drag it by the header, resize from any corner; both are remembered.
+  const OP_BOX = 'sc.online.box';
+  const OP_MIN_W = 300, OP_MIN_H = 300;
+  const savedBox = () => {
+    try { const b = JSON.parse(localStorage.getItem(OP_BOX) || 'null'); return b && Number.isFinite(b.x) && Number.isFinite(b.y) ? b : null; } catch { return null; }
+  };
+  const saveBox = () => {
+    const r = pop.getBoundingClientRect();
+    try {
+      localStorage.setItem(OP_BOX, JSON.stringify({
+        x: Math.round(r.left), y: Math.round(r.top),
+        ...(pop.style.height ? { w: Math.round(r.width), h: Math.round(r.height) } : {}),
+      }));
+    } catch { /* full */ }
+  };
+  const placeOp = (x, y) => {
+    const w = pop.offsetWidth || 340, h = pop.offsetHeight || 400;
+    pop.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
+    pop.style.top = `${Math.max(40, Math.min(y, window.innerHeight - Math.min(h, 120)))}px`;
+    pop.style.right = 'auto';
+  };
+  const sizeOp = (w, h) => {
+    pop.style.width = `${Math.max(OP_MIN_W, Math.min(w, window.innerWidth - 16))}px`;
+    pop.style.height = `${Math.max(OP_MIN_H, Math.min(h, window.innerHeight - 48))}px`;
+    pop.style.maxHeight = 'none';
+  };
+  const unsizeOp = () => { pop.style.width = ''; pop.style.height = ''; pop.style.maxHeight = ''; };
+
   function place() {
+    const box = betaLayoutOn() ? savedBox() : null;
+    if (box) {
+      if (Number.isFinite(box.w) && Number.isFinite(box.h)) sizeOp(box.w, box.h); else unsizeOp();
+      placeOp(box.x, box.y);
+      return;
+    }
+    unsizeOp();
     const r = chip.getBoundingClientRect();
     const w = pop.offsetWidth || 320;
     pop.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8))}px`;
     pop.style.top = `${r.bottom + 8}px`;
     pop.style.right = 'auto';
   }
+
+  const opFloat = scFloatAdd('online', {
+    panel: pop, host: pop, chip, noPop: true, isOpen: () => !pop.classList.contains('hidden'),
+    place: placeOp, save: saveBox, restore: () => {}, close: () => close(),
+  });
+  const opHead = pop.querySelector('.op-head');
+  opHead.addEventListener('mousedown', (e) => {
+    if (!betaLayoutOn() || e.button !== 0 || e.target.closest('button, input')) return;
+    e.preventDefault();
+    const r = pop.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    pop.classList.add('dragging');
+    const move = (ev) => {
+      placeOp(ev.clientX - ox, ev.clientY - oy);
+      scFloatDrag(opFloat, ev, { x: ev.clientX - ox, y: ev.clientY - oy, w: r.width, h: r.height });
+    };
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      pop.classList.remove('dragging');
+      saveBox();
+      scFloatDrop(opFloat, ev, { x: ox, y: oy });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+  opHead.addEventListener('dblclick', (e) => {
+    if (!betaLayoutOn() || e.target.closest('button, input')) return;
+    try { localStorage.removeItem(OP_BOX); } catch { /* ignore */ }
+    place();
+  });
+  pop.querySelectorAll('.op-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const dir = grip.dataset.rz;
+    const east = dir.includes('e'), south = dir.includes('s');
+    const r = pop.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const maxW = east ? window.innerWidth - 8 - r.left : r.right - 8;
+    const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
+    pop.classList.add('resizing');
+    window.SolarLiquidGlass?.detach(pop);
+    const move = (ev) => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      const w = Math.max(OP_MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
+      const h = Math.max(OP_MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
+      pop.style.width = `${w}px`;
+      pop.style.height = `${h}px`;
+      pop.style.maxHeight = 'none';
+      pop.style.left = `${east ? r.left : r.right - w}px`;
+      pop.style.top = `${south ? r.top : r.bottom - h}px`;
+      pop.style.right = 'auto';
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      pop.classList.remove('resizing');
+      window.SolarLiquidGlass?.attach(pop);
+      saveBox();
+      scFloatBump(opFloat, { force: true });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }));
 
   function render() {
     if (!data) return;
@@ -11994,7 +12151,6 @@ function showPeopleMenu(person, x, y) {
   const jumpBtn = document.getElementById('lc-jump');
   const jumpLabel = document.getElementById('lc-jump-label');
   const replyBar = document.getElementById('lc-replybar');
-  const peopleEl = document.getElementById('lc-people');
   const countEl = document.getElementById('lc-count');
   let replyTo = null;
   let lcSeenIds = new Set();
@@ -12064,23 +12220,6 @@ function showPeopleMenu(person, x, y) {
   list.addEventListener('scroll', () => { if (atBottom()) { lcBelow = 0; } paintJump(); });
   jumpBtn.addEventListener('click', () => { list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' }); lcBelow = 0; paintJump(); });
 
-  function renderPeople() {
-    const prefs = lcPrefs();
-    panel.classList.toggle('lc-has-people', prefs.people);
-    const people = Array.isArray(state.people) ? state.people : [];
-    const extra = Math.max(0, (state.viewers || 0) - people.length);
-    peopleEl.innerHTML = `<div class="lc-people-head">Here now <em>${Math.max(people.length, state.viewers || 0)}</em></div>${
-      people.map((p) => `<div class="lc-person" data-uuid="${escapeHtml(p.uuid)}" data-name="${escapeHtml(p.name)}">
-        <img src="${frAvatar(p.uuid)}" alt="" ${personAttr(p.uuid, p.name)}><span ${personAttr(p.uuid, p.name)}>${escapeHtml(p.name)}</span></div>`).join('')
-    }${extra ? `<div class="lc-people-more">and ${extra} more</div>` : ''}`;
-  }
-  peopleEl.addEventListener('contextmenu', (e) => {
-    const row = e.target.closest('.lc-person');
-    if (!row) return;
-    e.preventDefault();
-    showPeopleMenu({ uuid: row.dataset.uuid, name: row.dataset.name }, e.clientX, e.clientY);
-  });
-
   function renderBeta(ready) {
     const prefs = lcPrefs();
     panel.classList.toggle('lc-compact', prefs.compact);
@@ -12088,8 +12227,7 @@ function showPeopleMenu(person, x, y) {
     sub.textContent = !state.signedIn ? 'Sign in to chat'
       : !state.connected ? 'Connecting…'
       : state.available === false ? 'Chat server is offline'
-      : `${Math.max(1, state.viewers || 1)} here · messages last 1 hour`;
-    renderPeople();
+      : 'Messages last 1 hour';
     const q = searchBar.classList.contains('hidden') ? '' : searchIn.value.trim().toLowerCase();
     const wasBottom = atBottom() || !render.scrolled;
     const prevTop = list.scrollTop;
@@ -12210,7 +12348,6 @@ function showPeopleMenu(person, x, y) {
     scMenu(r.right - 220, r.bottom + 6, [
       ['Compact messages', () => setLcPref('compact', !p.compact), { check: true, on: p.compact }],
       ['Always show times', () => setLcPref('times', !p.times), { check: true, on: p.times }],
-      ['Show who\'s here', () => setLcPref('people', !p.people), { check: true, on: p.people }],
       ['Sound when mentioned', () => setLcPref('ping', !p.ping), { check: true, on: p.ping }],
       '-',
       ...(lcFloat.win ? [] : [['Reset size and position', () => head.dispatchEvent(new MouseEvent('dblclick'))]]),
@@ -12228,13 +12365,6 @@ function showPeopleMenu(person, x, y) {
     countEl.textContent = n >= 240 ? `${300 - n}` : '';
     countEl.classList.toggle('warn', n >= 280);
   });
-  viewersEl.addEventListener('click', () => {
-    if (!betaLayoutOn()) return;
-    if (panel.classList.contains('sc-wide')) setLcPref('people', !lcPrefs().people);
-    else panel.classList.toggle('lc-people-peek');
-  });
-  list.addEventListener('mousedown', () => panel.classList.remove('lc-people-peek'));
-
   function render() {
     const ready = state.connected && state.signedIn && state.available !== false;
     input.disabled = !ready; sendBtn.disabled = !ready;
