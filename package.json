@@ -1,8 +1,8 @@
 {
   "name": "solarclient",
   "productName": "SolarClient",
-  "version": "3.22.80-beta.39",
-  "description": "SolarClient 3.22.80-beta.39 — a fast Minecraft launcher",
+  "version": "3.22.80-beta.40",
+  "description": "SolarClient 3.22.80-beta.40 — a fast Minecraft launcher",
   "main": "src/main/main.js",
   "scripts": {
     "start": "node scripts/brand-dev.js && electron .",

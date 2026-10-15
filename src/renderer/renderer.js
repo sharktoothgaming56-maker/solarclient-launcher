@@ -4882,11 +4882,15 @@ function applyBetaLayout(on) {
   document.body.classList.toggle('no-ui-motion', !!on && theme.uiMotion === false);
   const lcInput = document.getElementById('live-chat-input');
   if (lcInput) lcInput.placeholder = on ? 'Message everyone' : 'Say something to everyone';
-  // Older builds (and the retired quality governor) saved animations/motion off,
-  // which hid the beta's switcher, button and panel animations. Restore once.
-  if (on && localStorage.getItem('solar-beta-visuals-v') !== '1') {
-    localStorage.setItem('solar-beta-visuals-v', '1');
-    Object.assign(theme, { animations: true, uiMotion: true, lowGraphics: false, particles: true, parallax: true, meteors: true });
+  // Older builds (and the retired quality governor) saved animations/motion off
+  // and left the cursor trail and old glass values behind. Move beta profiles
+  // onto the beta look once.
+  if (on && localStorage.getItem('solar-beta-visuals-v') !== '2') {
+    localStorage.setItem('solar-beta-visuals-v', '2');
+    Object.assign(theme, {
+      animations: true, uiMotion: true, lowGraphics: false, particles: true, parallax: true, meteors: true,
+      trail: false, blur: 18, alpha: 48, sceneDim: 34,
+    });
     saveTheme();
     applyTheme();
   }

@@ -39,8 +39,22 @@ const BASE = {
   log: false,
 };
 
+// The renderer runs per-frame (pointer, resize, rAF) handlers; control-flow
+// flattening, rc4 string decoding, split strings and self-defending made the
+// packaged UI several times heavier than the readable dev build. Keep names
+// mangled and strings tabled, drop the transforms that cost CPU at runtime.
+const BROWSER = {
+  ...BASE,
+  controlFlowFlattening: false,
+  numbersToExpressions: false,
+  stringArrayEncoding: [],
+  stringArrayThreshold: 0.75,
+  splitStrings: false,
+  selfDefending: false,
+};
+
 function obfuscateCode(code, target = 'node') {
-  return JsObf.obfuscate(code, { ...BASE, target }).getObfuscatedCode();
+  return JsObf.obfuscate(code, { ...(target === 'browser' ? BROWSER : BASE), target }).getObfuscatedCode();
 }
 
 function obfuscateFile(file, target = 'node') {
