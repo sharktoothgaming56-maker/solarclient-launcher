@@ -4882,6 +4882,14 @@ function applyBetaLayout(on) {
   document.body.classList.toggle('no-ui-motion', !!on && theme.uiMotion === false);
   const lcInput = document.getElementById('live-chat-input');
   if (lcInput) lcInput.placeholder = on ? 'Message everyone' : 'Say something to everyone';
+  // Older builds (and the retired quality governor) saved animations/motion off,
+  // which hid the beta's switcher, button and panel animations. Restore once.
+  if (on && localStorage.getItem('solar-beta-visuals-v') !== '1') {
+    localStorage.setItem('solar-beta-visuals-v', '1');
+    Object.assign(theme, { animations: true, uiMotion: true, lowGraphics: false, particles: true, parallax: true, meteors: true });
+    saveTheme();
+    applyTheme();
+  }
   // Purple became the default accent; move people still on the old default once.
   if (on && localStorage.getItem('solar-accent-default-v') !== '1') {
     localStorage.setItem('solar-accent-default-v', '1');
