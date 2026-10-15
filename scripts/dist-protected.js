@@ -34,9 +34,10 @@ function collect(dir, out = []) {
 }
 
 (function main() {
-  // Renderer code ships exactly as written (it is public in the source repo and
-  // runs per-frame UI work); only the main process is obfuscated.
-  const files = collect(path.join(SRC, 'main'));
+  // Ship every app JS file scrambled + string-encrypted (RC4). Vendor
+  // bundles under src/**/vendor are skipped by collect(). Dev still runs
+  // the plain readable tree; only the packaged asar is protected.
+  const files = collect(SRC);
   // An interrupted build leaves src obfuscated; building again would scramble
   // it twice and back up the scrambled copy as the "original".
   const scrambled = files.filter((f) => /^(?:const|var) _0x[0-9a-f]+=/.test(fs.readFileSync(f, 'utf8').slice(0, 200)));
@@ -68,7 +69,10 @@ function collect(dir, out = []) {
   console.log(`[protect] obfuscating ${files.length} source files`);
   let code = 1;
   try {
-    for (const f of files) obfuscateFile(f, 'node');
+    for (const f of files) {
+      const target = /(?:^|[\\/])renderer[\\/]/.test(rel(f)) ? 'browser' : 'node';
+      obfuscateFile(f, target);
+    }
     const extra = process.argv.slice(2);
     const r = spawnSync('npm', ['run', 'dist:raw', ...(extra.length ? ['--', ...extra] : [])], { cwd: ROOT, stdio: 'inherit', shell: true });
     code = r.status == null ? 1 : r.status;

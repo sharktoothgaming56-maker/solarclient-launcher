@@ -1398,6 +1398,7 @@ function ensureSkin3D() {
 function fitLaunchScale() {
   const z = Math.min(1.8, Math.max(1, Math.min(innerWidth / 1320, innerHeight / 840)));
   document.documentElement.style.setProperty('--lz', z.toFixed(3));
+  placeVersionWatermark();
 }
 fitLaunchScale();
 window.addEventListener('resize', () => { fitLaunchScale(); heroViewer?.requestRender(); skinsViewer?.requestRender(); });
@@ -6433,20 +6434,49 @@ const LAUNCH_SKIES = [
 ];
 
 // =====================================================================
-// WATERMARK — the version number as a solid 3D block: a bevelled face
-// over a stack of extrusion layers, with round holes punched all the way
-// through. Every layer carries its own copy of the hole mask, shifted with
-// it, so each hole shows its inner wall instead of a flat cut-out. Static
-// on purpose — nothing animates, so it costs one paint.
+// VERSION PLATE — same language as LAUNCH GAME: accent fill, thick black
+// stroke, soft purple glow. Lined up on the launch column. Drawn once.
 // =====================================================================
-function renderWatermark(host, text) {
-  const NS = 'http://www.w3.org/2000/svg';
-  const DEPTH = 16, DX = 1.1, DY = 1.5;
+function versionWatermarkText() {
+  if (typeof currentEdition !== 'undefined' && currentEdition === 'bedrock' && bedrockInfo) {
+    const t = bedrockChannel === 'preview' ? bedrockInfo.preview : bedrockInfo.release;
+    if (t && t.version) return String(t.version);
+  }
+  const sel = document.getElementById('launch-instance-select');
+  return ((sel && sel.value || '').split('|')[1] || '').trim();
+}
 
-  let seed = 0; for (let i = 0; i < text.length; i++) seed = (seed * 31 + text.charCodeAt(i)) & 0x7fffffff;
-  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed % 1000) / 1000; };
+function placeVersionWatermark() {
+  const host = document.getElementById('bg-version-watermark');
+  const hero = document.getElementById('launchpad-hero');
+  if (!host || !hero || !host.firstChild) return;
+  const hr = hero.getBoundingClientRect();
+  if (hr.width < 20) return;
+  const bed = document.getElementById('bedrock-panel');
+  const onBedrock = bed && !bed.classList.contains('hidden');
+  const col = document.querySelector(onBedrock ? '#bedrock-panel' : '.launch-col');
+  const btn = document.getElementById(onBedrock ? 'bedrock-launch-btn' : 'launch-btn');
+  if (!btn) return;
+  const br = btn.getBoundingClientRect();
+  const cr = (col || btn).getBoundingClientRect();
+  // Sit on the launch column, sized to the button so it frames it cleanly.
+  const w = Math.round(Math.min(hr.width * 0.78, Math.max(cr.width * 1.18, br.width * 1.22)));
+  host.style.left = (cr.left + cr.width / 2 - hr.left) + 'px';
+  host.style.top = (br.top + br.height / 2 - hr.top) + 'px';
+  host.style.setProperty('--wm-w', w + 'px');
+}
+
+function renderWatermark(host, text) {
+  text = String(text || '').trim();
+  if (!host) return;
+  if (!text) { host.textContent = ''; delete host.dataset.wm; return; }
 
   const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue('--accent').trim() || '#9d6bff';
+  const accent2 = css.getPropertyValue('--accent2').trim() || '#e561d8';
+  const sig = 'v7|' + text + '|' + accent + '|' + accent2;
+  if (host.dataset.wm === sig && host.firstChild) return;
+
   const toRgb = (hex) => {
     const v = String(hex).trim().replace('#', '');
     const n = v.length === 3 ? v.split('').map(c => c + c) : [v.slice(0, 2), v.slice(2, 4), v.slice(4, 6)];
@@ -6455,106 +6485,63 @@ function renderWatermark(host, text) {
   };
   const hex = (rgb) => '#' + rgb.map(c => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, '0')).join('');
   const mix = (a, b, t) => hex(toRgb(a).map((c, i) => c + (toRgb(b)[i] - c) * t));
-  const shade = (a, f) => hex(toRgb(a).map(c => c * f));
-  const accent = css.getPropertyValue('--accent').trim() || '#9d6bff';
-  const accent2 = css.getPropertyValue('--accent2').trim() || '#e561d8';
 
+  const VB_W = 1000;
+  const track = text.length > 7 ? -3 : text.length > 4 ? -1 : 1;
+  const probe = document.createElement('canvas').getContext('2d');
+  const widthAt = (size) => {
+    probe.font = `900 ${size}px 'Segoe UI Black', 'Segoe UI', 'Arial Black', sans-serif`;
+    if ('letterSpacing' in probe) probe.letterSpacing = track + 'px';
+    return probe.measureText(text).width;
+  };
+  let size = 300;
+  const measured = widthAt(size);
+  if (measured > 0) size = Math.max(170, Math.min(340, Math.round(size * 880 / measured)));
+
+  // Same recipe as Launch Game / chips: white face, fat black stroke, purple depth.
+  const DEPTH = 14, DX = 0.95, DY = 1.2;
+  const faceX = VB_W / 2 - (DEPTH * DX) / 2;
+  const baseline = Math.round(size * 0.84 + 30);
+  const VB_H = Math.round(baseline + DEPTH * DY + 30);
+
+  const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 1000 360');
+  svg.setAttribute('viewBox', `0 0 ${VB_W} ${VB_H}`);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.style.width = '100%';
   svg.style.height = '100%';
   svg.style.overflow = 'visible';
 
-  // IDs are per render: a second watermark on the page must not borrow this one's glyphs.
   renderWatermark.n = (renderWatermark.n || 0) + 1;
   const id = (k) => `wm${renderWatermark.n}-${k}`;
-  const G = `#${id('glyphs')}`, M = `url(#${id('holes')})`;
+  const G = `#${id('glyphs')}`;
 
   let layers = '';
   for (let i = DEPTH; i >= 1; i--) {
-    const t = i / DEPTH;   // 1 = deepest
-    layers += `<use href="${G}" transform="translate(${(i * DX).toFixed(1)},${(i * DY).toFixed(1)})"
-      fill="${mix(shade(accent, 0.62), shade(accent, 0.2), t)}" mask="${M}"/>`;
+    const t = i / DEPTH;
+    const col = mix(mix(accent, accent2, 0.4), mix(accent, '#06040c', 0.8), t);
+    layers += `<use href="${G}" transform="translate(${(i * DX).toFixed(2)},${(i * DY).toFixed(2)})" fill="${col}"/>`;
   }
+
   svg.innerHTML = `
     <defs>
-      <text id="${id('glyphs')}" x="500" y="250" text-anchor="middle"
+      <text id="${id('glyphs')}" x="${faceX.toFixed(1)}" y="${baseline}" text-anchor="middle"
             font-family="'Segoe UI Black', 'Segoe UI', 'Arial Black', sans-serif"
-            font-size="300" font-weight="900" letter-spacing="-2">${escapeHtml(text)}</text>
-      <linearGradient id="${id('face')}" x1="0" y1="40" x2="0" y2="250" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stop-color="${mix(accent2, '#ffffff', 0.82)}"/>
-        <stop offset="45%" stop-color="${mix(accent, '#ffffff', 0.42)}"/>
-        <stop offset="100%" stop-color="${mix(accent, accent2, 0.25)}"/>
-      </linearGradient>
-      <linearGradient id="${id('gloss')}" x1="0" y1="40" x2="0" y2="250" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
-        <stop offset="38%" stop-color="#ffffff" stop-opacity="0.12"/>
-        <stop offset="40%" stop-color="#ffffff" stop-opacity="0"/>
-      </linearGradient>
-      <filter id="${id('shadow')}" x="-20%" y="-20%" width="140%" height="160%">
-        <feGaussianBlur stdDeviation="11"/>
+            font-size="${size}" font-weight="900" letter-spacing="${track}">${escapeHtml(text)}</text>
+      <filter id="${id('shadow')}" x="-20%" y="-20%" width="150%" height="160%">
+        <feGaussianBlur stdDeviation="7"/>
       </filter>
-      <mask id="${id('holes')}" maskUnits="userSpaceOnUse" x="-60" y="-60" width="1120" height="480">
-        <rect x="-60" y="-60" width="1120" height="480" fill="white"/>
-        <g id="${id('holeset')}" fill="black"></g>
-      </mask>
     </defs>
-    <g opacity="0.9">
-      <use href="${G}" transform="translate(${(DEPTH * DX + 8).toFixed(1)},${(DEPTH * DY + 16).toFixed(1)})"
-           fill="#000" opacity="0.45" filter="url(#${id('shadow')})"/>
-      ${layers}
-      <use href="${G}" fill="url(#${id('face')})" mask="${M}"/>
-      <use href="${G}" fill="url(#${id('gloss')})" mask="${M}"/>
-      <use class="wm-rim" href="${G}" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="2.5"
-           stroke-linejoin="round" mask="${M}"/>
-      <g class="wm-hole-rim" id="${id('holerim')}" fill="none" stroke="none" stroke-width="2.5"></g>
-    </g>
+    <use href="${G}" transform="translate(${(DEPTH * DX + 5).toFixed(1)},${(DEPTH * DY + 10).toFixed(1)})"
+         fill="#000" opacity="0.5" filter="url(#${id('shadow')})"/>
+    ${layers}
+    <use class="wm-rim" href="${G}" fill="#ffffff"
+         stroke="#000" stroke-width="20" stroke-linejoin="round" paint-order="stroke fill"/>
   `;
 
   host.textContent = '';
+  host.dataset.wm = sig;
   host.appendChild(svg);
-
-  // Holes only where the digits have ink: draw the same text on a canvas
-  // and keep candidate spots whose centre and edges all land on a glyph.
-  const W = 1000, H = 360;
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  const ctx = cv.getContext('2d', { willReadFrequently: true });
-  ctx.font = `900 300px 'Segoe UI Black', 'Segoe UI', 'Arial Black', sans-serif`;
-  ctx.textAlign = 'center';
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '-2px';
-  ctx.fillText(text, 500, 250);
-  const ink = ctx.getImageData(0, 0, W, H).data;
-  const on = (x, y) => {
-    const xi = Math.round(x), yi = Math.round(y);
-    return xi >= 0 && yi >= 0 && xi < W && yi < H && ink[(yi * W + xi) * 4 + 3] > 128;
-  };
-  // A hole must sit wholly inside a stroke with a rim of solid digit all
-  // round it — a hole that touches the edge reads as a bite out of the glyph.
-  const RIM = 6;
-  const inside = (cx, cy, r) => {
-    if (!on(cx, cy)) return false;
-    for (let a = 0; a < 16; a++) {
-      const t = (a / 16) * Math.PI * 2;
-      if (!on(cx + Math.cos(t) * (r + RIM), cy + Math.sin(t) * (r + RIM))) return false;
-      if (!on(cx + Math.cos(t) * r * 0.5, cy + Math.sin(t) * r * 0.5)) return false;
-    }
-    return true;
-  };
-  const target = 26 + Math.floor(rnd() * 10);
-  const placed = [];
-  for (let tries = 0; tries < 2500 && placed.length < target; tries++) {
-    const r = 4 + rnd() * 11;
-    const cx = 60 + rnd() * 880, cy = 40 + rnd() * 215;
-    if (!inside(cx, cy, r)) continue;
-    if (placed.some(p => Math.hypot(p.cx - cx, p.cy - cy) < p.r + r + 7)) continue;
-    placed.push({ cx, cy, r });
-  }
-  const circles = placed
-    .map(p => `<circle cx="${p.cx.toFixed(0)}" cy="${p.cy.toFixed(0)}" r="${p.r.toFixed(1)}"/>`).join('');
-  svg.querySelector(`#${id('holeset')}`).innerHTML = circles;
-  svg.querySelector(`#${id('holerim')}`).innerHTML = circles;
 }
 
 function paintLaunchArt() {
@@ -6565,7 +6552,25 @@ function paintLaunchArt() {
 
   const sel = document.getElementById('launch-instance-select');
   const [, version, loader] = (sel?.value || '').split('|');
-  if (!version || betaLayoutOn()) {
+  if (betaLayoutOn()) {
+    art.style.backgroundImage = '';
+    stars.style.backgroundImage = '';
+    const wmBeta = document.getElementById('bg-version-watermark');
+    if (wmBeta) { wmBeta.textContent = ''; delete wmBeta.dataset.wm; }
+    // Corner tag on the launch panel: version + loader, same layout as the title-bar Beta tag.
+    let ver = version, load = (loader || 'vanilla');
+    if (typeof currentEdition !== 'undefined' && currentEdition === 'bedrock' && bedrockInfo) {
+      const t = bedrockChannel === 'preview' ? bedrockInfo.preview : bedrockInfo.release;
+      if (t && t.version) ver = String(t.version);
+      load = bedrockChannel === 'preview' ? 'preview' : 'bedrock';
+    }
+    if (!ver || !badge) { badge?.classList.add('hidden'); return; }
+    document.getElementById('lb-ver').textContent = ver;
+    document.getElementById('lb-loader').textContent = String(load).toUpperCase();
+    badge.className = `launch-badge loader-${String(load).toLowerCase()}`;
+    return;
+  }
+  if (!version) {
     art.style.backgroundImage = '';
     stars.style.backgroundImage = '';
     const wmOff = document.getElementById('bg-version-watermark');
@@ -11212,6 +11217,8 @@ function setEdition(edition) {
   document.getElementById('prewarm-chip').classList.toggle('hidden', !isJava || !prewarmChip.dataset.active);
   document.getElementById('bedrock-panel').classList.toggle('hidden', isJava);
   if (!isJava) refreshBedrock();
+  paintLaunchArt();
+  requestAnimationFrame(placeVersionWatermark);
 }
 document.querySelectorAll('#edition-switch .edition-btn').forEach(btn => {
   btn.addEventListener('click', () => setEdition(btn.dataset.edition));
@@ -11268,6 +11275,7 @@ function updateBedrockButton() {
     note.innerHTML = bedrockInfo.reason || 'Minecraft for Windows isn\'t installed yet.';
     storeBtn.classList.remove('hidden');
   }
+  paintLaunchArt();
 }
 
 document.getElementById('bedrock-launch-btn').addEventListener('click', async () => {

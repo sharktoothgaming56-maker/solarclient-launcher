@@ -5367,7 +5367,32 @@ body.beta-layout #online-pop.dragging .op-head{ cursor:grabbing; }
 #updates-menu > .um-rz.ne{ top:0; right:0; cursor:nesw-resize; }
 /* The X lives in the top-right corner, so that corner doesn't resize. */
 body.beta-layout :is(#live-chat > .lc-rz, #mod-modal .mod-panel > .mod-rz, #online-pop > .op-rz, #updates-menu > .um-rz).ne{ display:none !important; }
-body.beta-layout :is(#bg-version-watermark, #launch-art, #launch-art-stars, #launch-badge){ display:none !important; }
+body.beta-layout :is(#launch-art, #launch-art-stars, #bg-version-watermark){ display:none !important; }
+/* Launch-panel corner tag: same box as the title-bar version / Beta tag. */
+body.beta-layout #launch-badge{
+  display:inline-flex !important;
+  flex-direction:row;
+  align-items:center;
+  top:12px; left:12px; right:auto;
+  z-index:5;
+  height:28px; box-sizing:border-box; padding:0 10px; gap:0;
+  border-radius:10px; border:2px solid #000;
+  background:linear-gradient(160deg, var(--btn-top, #835ecd), var(--btn-bot, #3c295c));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -2px 0 rgba(0,0,0,0.25), 0 6px 14px -8px var(--accent-glow);
+  -webkit-backdrop-filter:none; backdrop-filter:none;
+  line-height:1;
+}
+body.beta-layout #launch-badge.hidden{ display:none !important; }
+body.beta-layout #launch-badge .lb-ver{
+  font-size:11.5px; font-weight:800; letter-spacing:0.5px;
+  color:#fff; -webkit-text-fill-color:#fff; -webkit-text-stroke:2px #000; paint-order:stroke fill;
+  font-variant-numeric:tabular-nums;
+}
+body.beta-layout #launch-badge .lb-loader{
+  margin-left:8px; padding-left:8px; border-left:1.5px solid rgba(0,0,0,0.5);
+  font-size:11.5px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase;
+  color:#ffd45e; -webkit-text-fill-color:#ffd45e; -webkit-text-stroke:2px #000; paint-order:stroke fill;
+}
 /* The launchpad skin stands still; it only moves when you turn it. */
 body.beta-layout .skin-stage{ animation:none !important; }
 body.beta-layout .skin-shadow{ animation:none !important; opacity:.9; }
