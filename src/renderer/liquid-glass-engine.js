@@ -202,8 +202,24 @@
     const r = Math.min(radius, w / 2, h / 2);
     const bx = w / 2 - r;
     const by = h / 2 - r;
+    // Everything deeper than the bezel is neutral (no shift, no specular), so fill it
+    // once and only walk the rim. On rows clear of the corners (qy <= min(0, r - bezel)),
+    // any pixel with qx <= r - bezel - 1 is that deep, so those spans are skipped.
+    new Uint32Array(data.buffer).fill(0xff808080);
+    const deep = r - bezel;
+    const rowClear = Math.min(0, deep);
+    const skipHalf = bx + deep - 1;
     for (let y = 0; y < h; y++) {
+      const qyRow = Math.abs(y + 0.5 - h / 2) - by;
+      let skipFrom = w;
+      let skipTo = w;
+      if (qyRow <= rowClear && skipHalf > 0) {
+        skipFrom = Math.max(0, Math.ceil(w / 2 - skipHalf - 0.5));
+        skipTo = Math.min(w, Math.floor(w / 2 + skipHalf - 0.5) + 1);
+        if (skipTo <= skipFrom) skipFrom = skipTo = w;
+      }
       for (let x = 0; x < w; x++) {
+        if (x === skipFrom) { x = skipTo - 1; continue; }
         const px = x + 0.5 - w / 2;
         const py = y + 0.5 - h / 2;
         const qx = Math.abs(px) - bx;
@@ -308,6 +324,29 @@
     return Math.max(0, Math.min(0.5, d));
   }
 
+  // A new lens map is a data: URL the SVG filter loads on its own. Until it has,
+  // the filter displaces by garbage, so the old lens (or none) stays up meanwhile.
+  const readyFilters = new Set();
+  const loadingFilters = new Map();
+  function whenFilterReady(id, href, cb) {
+    if (readyFilters.has(id)) { cb(); return; }
+    let p = loadingFilters.get(id);
+    if (!p) {
+      const img = new Image();
+      img.src = href;
+      p = img.decode().catch(() => {}).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+        .then(() => { readyFilters.add(id); loadingFilters.delete(id); });
+      loadingFilters.set(id, p);
+    }
+    p.then(cb);
+  }
+
+  /** Per-surface dials (data-lq-bezel / -refraction / -dispersion / -specular) over the global ones. */
+  function dial(node, key, fallback) {
+    const v = node.dataset[key];
+    return v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : fallback;
+  }
+
   function paint(node) {
     if (!node || !node.isConnected) return;
 
@@ -318,8 +357,9 @@
 
     const tier = tierFor();
     node.dataset.lqTier = tier;
+    if (tier !== 'refract') { layers.refract.__lqFilter = null; layers.refract.classList.remove('lq-wait'); }
     const radius = parseRadius(node);
-    const bezel = Math.max(4, Math.min(optics.bezel, Math.min(w, h) * 0.45));
+    const bezel = Math.max(4, Math.min(dial(node, 'lqBezel', optics.bezel), Math.min(w, h) * 0.45));
     const frost = Math.max(0, Math.min(1, optics.frost));
     const blur = Math.max(0, optics.blur);
     // data-lq-blur adds per-surface blur (e.g. a panel floating over busy content).
@@ -350,21 +390,33 @@
     const bf = `blur(${effectiveBlur}px) saturate(${saturation})`;
     setBf(layers.backdrop, bf);
 
-    const disp = normalizeDispersion(optics.dispersion);
+    const disp = normalizeDispersion(dial(node, 'lqDispersion', optics.dispersion));
     const images = glassImages(w, h, radius, bezel, optics.profile || 'squircle');
     const { id } = ensureFilter({
       w,
       h,
       mapHref: images.map,
-      refraction: Math.round(optics.refraction),
+      refraction: Math.round(dial(node, 'lqRefraction', optics.refraction)),
       dispersion: disp,
     });
-    setBf(layers.refract, `url(#${id})`);
+    const refract = layers.refract;
+    const want = `url(#${id})`;
+    refract.__lqWant = want;
+    if (refract.__lqFilter !== want) {
+      if (!refract.__lqFilter && !readyFilters.has(id)) refract.classList.add('lq-wait');
+      whenFilterReady(id, images.map, () => {
+        if (refract.__lqWant !== want) return;
+        setBf(refract, want);
+        refract.__lqFilter = want;
+        requestAnimationFrame(() => refract.classList.remove('lq-wait'));
+      });
+    }
 
-    if (optics.specular > 0) {
+    const specular = dial(node, 'lqSpecular', optics.specular);
+    if (specular > 0) {
       layers.specular.style.backgroundImage = `url(${images.specular})`;
       layers.specular.style.backgroundSize = '100% 100%';
-      layers.specular.style.opacity = String(optics.specular);
+      layers.specular.style.opacity = String(specular);
     } else {
       layers.specular.style.backgroundImage = 'none';
       layers.specular.style.opacity = '0';
@@ -438,6 +490,14 @@
     paintDirty.delete(node);
     node.__lqRO?.disconnect();
     delete node.__lqRO;
+  }
+
+  /** Paint now, not next frame: for a panel that was hidden and is about to be seen. */
+  function paintNow(node) {
+    if (!node) return;
+    if (!surfaces.has(node)) attach(node);
+    paintDirty.delete(node);
+    paint(node);
   }
 
   function refreshAll() {
@@ -544,6 +604,7 @@
     scan,
     attach,
     detach,
+    paintNow,
     setOptics,
     getOptics,
     loadOptics,

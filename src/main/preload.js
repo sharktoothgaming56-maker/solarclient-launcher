@@ -189,6 +189,8 @@ const api = {
   downloadUpdate: (which) => ipcRenderer.invoke('update:download', which),
   dismissUpdate: () => ipcRenderer.invoke('update:dismiss'),
   switchToStable: () => ipcRenderer.invoke('update:switchStable'),
+  listBetas: (force) => ipcRenderer.invoke('update:listBetas', Boolean(force)),
+  installBeta: (version) => ipcRenderer.invoke('update:installBeta', version),
   restartToApplyUpdate: () => ipcRenderer.invoke('update:restart'),
   onUpdateState: (cb) => ipcRenderer.on('update:state', (_e, state) => cb(state)),
   onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, pct) => cb(pct)),

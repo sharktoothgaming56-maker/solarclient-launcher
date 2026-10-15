@@ -509,7 +509,7 @@
       scrim.className = 'sp-scrim';
       scrim.innerHTML = `
         <div class="sp" role="dialog" aria-label="Share your screen">
-          <div class="sp-head"><span class="sp-ic">${ICONS.screen}</span><b>Share your screen</b><button type="button" class="sp-x" aria-label="Close">&times;</button></div>
+          <div class="sp-head"><span class="sp-ic">${ICONS.screen}</span><b>Share your screen</b><button type="button" class="sp-x" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>
           <div class="sp-tabs"><button type="button" data-tab="screen" class="on">Screens</button><button type="button" data-tab="window">Windows</button></div>
           <div class="sp-grid"><div class="sp-wait">Finding screens…</div></div>
           <div class="sp-opts">

@@ -25,30 +25,59 @@
     <span class="titlebar-version" id="titlebar-version"></span>
   </div>
   <div class="titlebar-tools">
-    <button type="button" class="topbar-chip beta hidden" id="beta-chip" title="You're on a beta build">Beta</button>
     <div class="updates-menu-wrap" id="updates-menu-wrap">
-      <button type="button" class="topbar-chip" id="update-chip" title="Updates">Updates</button>
-      <div class="updates-menu hidden" id="updates-menu">
-        <button type="button" class="updates-menu-item" id="updates-check">Check for updates</button>
-        <div class="updates-menu-sep"></div>
-        <div class="updates-menu-section-label">Updates</div>
-        <div class="updates-menu-row" id="updates-stable-row">
-          <span class="updates-menu-meta" id="updates-stable-meta">You're up to date</span>
-          <button type="button" class="updates-menu-action hidden" id="updates-stable-go">Install</button>
+      <button type="button" class="topbar-chip" id="update-chip" title="Updates">
+        <svg class="uc-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-9h-4V3H9v8H5l7 7 7-7z"/></svg>
+        <span>Updates</span>
+        <span class="uc-dot" aria-hidden="true"></span>
+      </button>
+      <div class="updates-menu liquid-glass hidden" id="updates-menu">
+        <div class="um-head">
+          <span class="um-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-9h-4V3H9v8H5l7 7 7-7z"/></svg></span>
+          <div class="um-title"><b>Updates</b><span id="updates-current">Checking your version…</span></div>
+          <button type="button" class="um-check" id="updates-check" title="Check for updates" aria-label="Check for updates"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+          <button type="button" class="live-chat-x" id="updates-close" title="Close" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
         </div>
-        <div class="updates-menu-section-label">Beta updates</div>
-        <div class="updates-menu-row" id="updates-beta-row">
-          <span class="updates-menu-meta" id="updates-beta-meta">No beta available</span>
-          <button type="button" class="updates-menu-action hidden" id="updates-beta-go">Install beta</button>
+        <div class="um-hero" id="updates-hero">
+          <div class="um-hero-top">
+            <span class="um-chan" id="updates-chan">Checking…</span>
+            <span class="um-when" id="updates-when"></span>
+          </div>
+          <div class="um-ver" id="updates-ver">—</div>
+          <div class="um-status" id="updates-status"><i></i><span>Checking for updates…</span></div>
+          <button type="button" class="um-primary hidden" id="updates-stable-go">Update</button>
+          <button type="button" class="um-primary hidden" id="updates-beta-go">Install</button>
         </div>
-        <div class="updates-menu-sep" id="updates-beta-switch-sep"></div>
-        <button type="button" class="updates-menu-item hidden" id="updates-switch-stable">Switch back to stable</button>
+        <div class="um-note" id="updates-note"></div>
+        <section class="um-sec" id="updates-beta-row">
+          <header class="um-sec-head"><span id="updates-beta-label">Beta builds</span><em id="updates-beta-count"></em></header>
+          <p class="um-sec-hint" id="updates-beta-meta"></p>
+          <div class="um-list hidden" id="updates-beta-list"></div>
+        </section>
+        <section class="um-sec" id="updates-stable-row">
+          <header class="um-sec-head"><span>Stable</span></header>
+          <div class="um-list">
+            <div class="um-row">
+              <span class="um-row-txt" id="updates-stable-meta"><b>—</b><small>Newest stable release</small></span>
+              <button type="button" class="um-ghost hidden" id="updates-switch-stable">Switch</button>
+            </div>
+          </div>
+        </section>
+        <div class="um-about-sheet hidden" id="updates-about">
+          <button type="button" class="um-back" id="updates-about-back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>Back</button>
+          <div class="um-about-title"><b id="updates-about-name"></b><small id="updates-about-when"></small></div>
+          <p class="um-about-text" id="updates-about-text"></p>
+          <button type="button" class="um-primary um-beta-go" id="updates-about-go">Install</button>
+        </div>
+        <span class="um-rz nw beta-only" data-rz="nw" aria-hidden="true"></span>
+        <span class="um-rz ne beta-only" data-rz="ne" aria-hidden="true"></span>
+        <span class="um-rz sw beta-only" data-rz="sw" aria-hidden="true"></span>
+        <span class="um-rz se beta-only" data-rz="se" aria-hidden="true"></span>
       </div>
     </div>
     <div id="online-indicator" class="online-indicator offline" role="button" tabindex="0" title="See who's online">
       <span class="online-dot"></span>
       <span id="online-indicator-label">Online —</span>
-      <svg class="oi-caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3"/></svg>
     </div>
     <div id="ingame-indicator" class="online-indicator ingame offline" title="People with the game running">
       <svg class="ingame-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm4-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
@@ -68,20 +97,20 @@
   <div class="window-controls">
     <button id="win-min" title="Minimize" aria-label="Minimize"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M2.5 7h9"/><path class="wc-i" d="M2.5 7h9"/></svg></button>
     <button id="win-max" title="Maximize" aria-label="Maximize"><svg class="wc-ico" viewBox="0 0 14 14"><rect class="wc-o" x="2.5" y="2.5" width="9" height="9" rx="1.5"/><rect class="wc-i" x="2.5" y="2.5" width="9" height="9" rx="1.5"/></svg></button>
-    <button id="win-close" title="Close" aria-label="Close" class="close-btn"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M3 3l8 8M11 3l-8 8"/><path class="wc-i" d="M3 3l8 8M11 3l-8 8"/></svg></button>
+    <button id="win-close" title="Close" aria-label="Close" class="close-btn"><svg class="wc-ico" viewBox="0 0 14 14"><path class="wc-o" d="M2.5 2.5l9 9M11.5 2.5l-9 9"/><path class="wc-i" d="M2.5 2.5l9 9M11.5 2.5l-9 9"/></svg></button>
   </div>
 </div>
 
 <div class="app">
   <aside class="sidebar glass liquid-glass">
-    <button class="nav-btn active" data-view="launchpad" title="Launchpad">
-      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    <button class="nav-btn active" data-view="launchpad" title="Launch Pad">
+      <svg viewBox="0 0 24 24"><path d="M9.19 6.35c-2.04 2.29-3.44 5.58-3.57 5.89L2 10.69l4.05-4.05c.47-.47 1.15-.68 1.81-.55l1.33.26zM11.17 17s3.74-1.55 5.89-3.7c5.4-5.4 4.5-9.62 4.21-10.57-.95-.3-5.17-1.19-10.57 4.21C8.55 9.09 7 12.83 7 12.83L11.17 17zm6.48-2.19c-2.29 2.04-5.58 3.44-5.89 3.57L13.31 22l4.05-4.05c.47-.47.68-1.15.55-1.81l-.26-1.33zM9 18c0 .83-.34 1.58-.88 2.12C6.94 21.3 2 22 2 22s.7-4.94 1.88-6.12C4.42 15.34 5.17 15 6 15c1.66 0 3 1.34 3 3zm4-9c0-1.1.9-2 2-2s2 .9 2 2-.9 2-2 2-2-.9-2-2z"/></svg>
     </button>
     <button class="nav-btn" data-view="instances" title="Versions">
       <svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>
     </button>
     <button class="nav-btn" data-view="mods" title="Content">
-      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4l16-.02V7z"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg>
     </button>
     <button class="nav-btn" data-view="customize" title="Customize">
       <svg viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
@@ -94,7 +123,7 @@
       <svg viewBox="0 0 24 24"><path d="M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
     </button>
     <button class="nav-btn" data-view="skins" title="Skins">
-      <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      <svg viewBox="0 0 24 24"><path d="M16 21H8a1 1 0 0 1-1-1v-7.93l-1.3 1.05a1 1 0 0 1-1.41 0l-2.83-2.83a1 1 0 0 1 0-1.41L7.34 3H9c0 1.1 1.34 2 3 2s3-.9 3-2h1.66l5.88 5.88a1 1 0 0 1 0 1.41l-2.83 2.83a1 1 0 0 1-1.41 0L17 12.07V20a1 1 0 0 1-1 1z"/></svg>
     </button>
     <div class="sidebar-spacer"></div>
     <button class="nav-btn beta-only" id="nav-legal" title="Terms of Service and Privacy Policy" aria-label="Terms of Service and Privacy Policy">
@@ -106,6 +135,7 @@
   </aside>
 
   <div class="main glass liquid-glass">
+    <div class="bg-meteors" id="bg-meteors" aria-hidden="true"></div>
     <header class="topbar">
       <div class="instance-select-wrap">
         <select id="launch-instance-select"></select>
@@ -351,13 +381,18 @@
 
     <!-- INSTANCES -->
     <section class="view" id="view-instances">
-      <div class="view-header"><h1>Versions</h1><button id="quick-create-btn" class="pill-btn primary">+ New instance</button></div>
+      <div class="view-header">
+        <span class="vs-ico beta-only" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg></span>
+        <div class="vs-titles"><h1>Versions<span class="beta-only">/Instances</span></h1><p class="vs-sub beta-only">Pick a version, choose a loader, and create.</p></div>
+        <button id="quick-create-btn" class="pill-btn primary">+ New instance</button>
+      </div>
       <p class="dim"></p>
 
       <div id="version-picker-panel" class="version-picker-panel glass liquid-glass hidden"></div>
+      <div class="vs-head vs-all-head beta-only">All versions<span class="vs-count" id="vs-all-count"></span></div>
       <div id="version-grid" class="instance-grid"></div>
 
-      <div class="mods-list-header">Your instances</div>
+      <div class="mods-list-header vs-head vs-inst-head">Your instances<span class="vs-count beta-only" id="vs-inst-count"></span></div>
       <div id="instance-list" class="instance-grid"></div>
     </section>
 
@@ -450,18 +485,23 @@
         <div class="fr-status" id="fr-status"><span class="fr-dot"></span><span id="fr-status-text">Offline mode</span></div>
       </div>
 
+      <div class="fr-invites" id="fr-invites"></div>
+
       <div class="fr-layout">
         <div class="fr-sidebar glass liquid-glass">
           <div class="fr-search-row">
-            <input id="fr-search" placeholder="Add by username or UUID" spellcheck="false">
+            <label class="fr-search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.25 4.24-1.42 1.42-4.24-4.25A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z"/></svg>
+              <input id="fr-search" placeholder="Search, or add by username" spellcheck="false" autocomplete="off">
+            </label>
             <button class="pill-btn primary" id="fr-add-btn">Follow</button>
           </div>
 
           <div class="fr-tabs" id="fr-tabs">
-            <button class="fr-tab active" data-tab="friends">Friends <span class="fr-count" id="fr-c-friends">0</span></button>
-            <button class="fr-tab" data-tab="following">Following <span class="fr-count" id="fr-c-following">0</span></button>
-            <button class="fr-tab" data-tab="followers">Followers <span class="fr-count" id="fr-c-followers">0</span></button>
-            <button class="fr-tab" data-tab="blocked">Blocked</button>
+            <button class="fr-tab active" data-tab="friends" title="Friends"><svg class="fr-tab-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7.5 0a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM9 13c-3.3 0-7 1.6-7 4.5V20h14v-2.5C16 14.6 12.3 13 9 13zm7.5 0c-.5 0-1 .03-1.5.1 1.3.95 2 2.25 2 3.9V20h5v-2.3c0-2.6-3-4.7-5.5-4.7z"/></svg><span class="fr-tab-l">Friends</span> <span class="fr-count" id="fr-c-friends">0</span></button>
+            <button class="fr-tab" data-tab="following" title="Following"><svg class="fr-tab-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-7 1.6-7 4.5V21h11.1a6 6 0 0 1 .4-6.6A11 11 0 0 0 10 14zm8.3 1.6-1.4 1.4 1.3 1.3H15v2h3.2l-1.3 1.3 1.4 1.4 3.7-3.7z"/></svg><span class="fr-tab-l">Following</span> <span class="fr-count" id="fr-c-following">0</span></button>
+            <button class="fr-tab" data-tab="followers" title="Followers"><svg class="fr-tab-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-7 1.6-7 4.5V21h11.1a6 6 0 0 1 .4-6.6A11 11 0 0 0 10 14zm9 0h-2v3h-3v2h3v3h2v-3h3v-2h-3z"/></svg><span class="fr-tab-l">Followers</span> <span class="fr-count" id="fr-c-followers">0</span></button>
+            <button class="fr-tab" data-tab="blocked" title="Blocked"><svg class="fr-tab-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 0 1 6.3 12.9L7.1 5.7A8 8 0 0 1 12 4zM5.7 7.1l11.2 11.2A8 8 0 0 1 5.7 7.1z"/></svg><span class="fr-tab-l">Blocked</span></button>
           </div>
 
           <div class="fr-list" id="fr-list"></div>
@@ -487,14 +527,21 @@
             <span>Messages are deleted after 3 days.</span>
             <button type="button" class="note-link" data-open-rules>Chat rules</button>
           </div>
+          <button class="fr-jump hidden" id="fr-jump" type="button">New messages
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16.6 5.7 10.3l1.4-1.4 4.9 4.9 4.9-4.9 1.4 1.4z"/></svg>
+          </button>
           <div class="fr-compose" id="fr-compose">
+            <button class="fr-emoji-btn" id="fr-emoji" type="button" title="Emoji" aria-label="Emoji" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-3.5 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm7 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM7.8 14h8.4a4.6 4.6 0 0 1-8.4 0z"/></svg>
+            </button>
             <input id="fr-input" placeholder="Message" maxlength="500" disabled>
-            <button class="pill-btn primary" id="fr-send" disabled>Send</button>
+            <span class="fr-left hidden" id="fr-left"></span>
+            <button class="pill-btn primary" id="fr-send" title="Send" aria-label="Send" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6v6.5L15.5 12 3.4 13.9z"/></svg>
+            </button>
           </div>
         </div>
       </div>
-
-      <div class="fr-invites" id="fr-invites"></div>
     </section>
 
     <!-- SERVERS -->
@@ -804,6 +851,10 @@
           <span>Shooting stars &amp; particles<span class="hint">Ambient starfield effects behind the glass</span></span>
           <label class="toggle"><input type="checkbox" id="particles-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
         </div>
+        <div class="setting-toggle-row beta-only">
+          <span>Meteors &amp; shooting stars<span class="hint">Meteors and shooting stars streak across the background, with the odd meteor shower</span></span>
+          <label class="toggle"><input type="checkbox" id="meteors-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+        </div>
         <div class="setting-toggle-row">
           <span>Depth parallax<span class="hint">The world shifts gently as you move your mouse</span></span>
           <label class="toggle"><input type="checkbox" id="parallax-toggle" checked><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
@@ -987,7 +1038,7 @@
       <button type="button" class="mod-icon-btn mod-refresh" id="mod-refresh" title="Refresh">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
       </button>
-      <button type="button" class="live-chat-x" id="mod-close" title="Close" aria-label="Close">&times;</button>
+      <button type="button" class="live-chat-x" id="mod-close" title="Close" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div class="mod-tabs" role="tablist">
       <button type="button" class="mod-tab active" data-tab="flags"><b class="mod-count" id="mod-flags-n">0</b><span>Flagged</span></button>
@@ -1112,7 +1163,7 @@
 <!-- A file attached to a report, opened from the mod panel. -->
 <div id="mod-viewer" class="confirm-modal mod-viewer hidden">
   <div class="mod-viewer-box">
-    <button type="button" class="live-chat-x mod-viewer-x" id="mod-viewer-close" title="Close" aria-label="Close">&times;</button>
+    <button type="button" class="live-chat-x mod-viewer-x" id="mod-viewer-close" title="Close" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     <div class="mod-viewer-media" id="mod-viewer-media"></div>
   </div>
 </div>
@@ -1126,7 +1177,7 @@
         <div class="report-title" id="report-title">Report player</div>
         <div class="report-sub">Only the SolarClient team sees reports. The player isn't told who reported them.</div>
       </div>
-      <button type="button" class="live-chat-x" id="report-close" title="Close" aria-label="Close">&times;</button>
+      <button type="button" class="live-chat-x" id="report-close" title="Close" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div class="report-body">
       <div class="report-label">What happened? <span class="req">Required</span></div>
@@ -1222,7 +1273,7 @@
       <span class="op-title">On SolarClient now</span>
       <span class="op-sub" id="online-pop-sub">Loading…</span>
     </div>
-    <button type="button" class="live-chat-x" id="online-pop-close" title="Close" aria-label="Close">&times;</button>
+    <button type="button" class="live-chat-x" id="online-pop-close" title="Close" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
   </div>
   <div class="op-views beta-only" id="online-pop-views" role="tablist">
     <button type="button" data-view="all" class="on">All <span id="op-n-all">0</span></button>
@@ -1252,7 +1303,7 @@
       <span class="lcv-faces" id="live-chat-faces"></span>
       <span class="lcv-count"><b id="live-chat-viewers-n">0</b> in chat</span>
     </div>
-    <button type="button" class="live-chat-x" id="live-chat-close" title="Close" aria-label="Close">&times;</button>
+    <button type="button" class="live-chat-x" id="live-chat-close" title="Close" aria-label="Close"><svg class="x-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
   </div>
   <div class="msg-expiry-note lc-note beta-only">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6 3.2 1.9-.9 1.5L11 13.5V7h2v5.6z"/></svg>
@@ -1267,10 +1318,12 @@
       <span>Replying to <b id="lc-reply-name"></b> <em id="lc-reply-quote"></em></span>
       <button type="button" class="sc-hbtn" id="lc-reply-x" title="Cancel reply (Esc)" aria-label="Cancel reply">&times;</button>
     </div>
-    <input id="live-chat-input" placeholder="Say something to everyone" maxlength="300" disabled>
-    <span class="lc-count beta-only" id="lc-count"></span>
-    <button type="button" class="sc-hbtn lc-emoji-btn beta-only" id="lc-emoji-btn" title="Emoji" aria-label="Emoji"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm3.5-9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm-7 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm3.5 6.5c2.3 0 4.3-1.5 5.1-3.5H6.9c.8 2 2.8 3.5 5.1 3.5z"/></svg></button>
-    <button class="pill-btn primary" id="live-chat-send" disabled>Send</button>
+    <div class="lc-field">
+      <input id="live-chat-input" placeholder="Say something to everyone" maxlength="300" disabled>
+      <span class="lc-count beta-only" id="lc-count"></span>
+      <button type="button" class="sc-hbtn lc-emoji-btn beta-only" id="lc-emoji-btn" title="Emoji" aria-label="Emoji"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm3.5-9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm-7 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm3.5 6.5c2.3 0 4.3-1.5 5.1-3.5H6.9c.8 2 2.8 3.5 5.1 3.5z"/></svg></button>
+      <button class="pill-btn primary" id="live-chat-send" disabled>Send</button>
+    </div>
   </div>
   <span class="lc-rz nw" data-rz="nw" aria-hidden="true"></span>
   <span class="lc-rz ne" data-rz="ne" aria-hidden="true"></span>

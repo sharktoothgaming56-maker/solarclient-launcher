@@ -512,9 +512,9 @@ function routePopupsToBrowser(webContents) {
   const isWeb = (u) => /^https?:\/\//i.test(u || '');
 
   webContents.setWindowOpenHandler(({ url, frameName, features }) => {
-    // Beta: live chat / admin panel / who's online popped out into their own little window.
+    // Beta: live chat / admin panel / who's online / updates popped out into their own little window.
     // The renderer moves the panel's DOM into it, so it must stay same-process.
-    if ((!url || url === 'about:blank') && /^sc-pop-(chat|admin|online)$/.test(frameName || '')) {
+    if ((!url || url === 'about:blank') && /^sc-pop-(chat|admin|online|updates)$/.test(frameName || '')) {
       const f = {};
       for (const part of String(features || '').split(',')) {
         const [k, v] = part.split('=').map((s) => s.trim());
@@ -552,7 +552,7 @@ function routePopupsToBrowser(webContents) {
   });
 
   webContents.on('did-create-window', (child, details) => {
-    const pop = /^sc-pop-(chat|admin|online)$/.exec(details?.frameName || '');
+    const pop = /^sc-pop-(chat|admin|online|updates)$/.exec(details?.frameName || '');
     if (pop) { watchPopout(child, pop[1]); return; }
     let handedOff = false;
     const handOff = (url) => {

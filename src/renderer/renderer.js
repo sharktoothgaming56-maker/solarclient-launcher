@@ -74,6 +74,7 @@ const defaultTheme = {
   monBg: 'nebula',
   launchStyle: 'purple', // beta only: 'purple' | 'glass'
   uiMotion: true,        // beta only: pop-downs, nav and button animations
+  meteors: true,         // beta only: meteors and shooting stars across the background
 };
 let theme = { ...defaultTheme };
 try { theme = { ...defaultTheme, ...JSON.parse(localStorage.getItem('nebula-theme') || '{}') }; } catch { /* fresh */ }
@@ -187,6 +188,7 @@ function applyTheme() {
   if (window.__starfield) {
     theme.particles ? window.__starfield.start() : window.__starfield.stop();
   }
+  window.__meteors?.sync();
 
   // Low-graphics mode strips the remaining blur passes and the nebula. It is
   // separate from theme.perfMode, which is about Java launch flags -- this
@@ -304,7 +306,8 @@ function ensureBackgrounds() {
       ctx.drawImage(layerB, 0, 0);
     }
 
-    if (theme.animations && Math.random() < 0.006 && shooters.length < 2) {
+    const meteorsOn = theme.meteors !== false && document.body.classList.contains('beta-layout');
+    if (theme.animations && !meteorsOn && Math.random() < 0.006 && shooters.length < 2) {
       shooters.push({
         x: Math.random() * w * 0.8, y: Math.random() * h * 0.3,
         vx: 7 + Math.random() * 5, vy: 3 + Math.random() * 2, life: 1,
@@ -361,6 +364,75 @@ function ensureBackgrounds() {
   // Defer ambience until after the first paint so glass shells win the
   // compositor race on cold start.
   requestAnimationFrame(() => requestAnimationFrame(() => start()));
+})();
+
+// ---------- meteors and shooting stars (beta) ----------
+// Each streak is one element flown by a compositor animation, so nothing runs
+// on the main thread while it crosses the sky. Quick thin shooting stars,
+// slower glowing meteors, and now and then a shower of several at once.
+(function meteors() {
+  const sky = document.getElementById('bg-meteors');
+  if (!sky) return;
+  let timer = 0;
+  const wanted = () => document.body.classList.contains('beta-layout') && theme.meteors !== false
+    && theme.animations && !theme.lowGraphics && !document.hidden && document.hasFocus()
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function fly(kind, from) {
+    if (sky.childElementCount > 9) return;
+    const W = sky.clientWidth || window.innerWidth, H = sky.clientHeight || window.innerHeight;
+    const big = kind === 'meteor';
+    const dir = from?.dir ?? (Math.random() < 0.72 ? 1 : -1);
+    const angle = from ? from.angle + (Math.random() * 6 - 3) : (big ? 22 : 16) + Math.random() * 22;
+    const rad = angle * Math.PI / 180;
+    const dist = Math.hypot(W, H) * (big ? 0.5 + Math.random() * 0.3 : 0.35 + Math.random() * 0.35);
+    const x0 = from ? from.x + (Math.random() - 0.5) * 260 : (dir > 0 ? -0.1 + Math.random() * 0.75 : 0.35 + Math.random() * 0.75) * W;
+    const y0 = from ? from.y + (Math.random() - 0.5) * 140 : -30 + Math.random() * H * 0.45;
+    const x1 = x0 + Math.cos(rad) * dist * dir, y1 = y0 + Math.sin(rad) * dist;
+    const rot = dir > 0 ? angle : 180 - angle;
+    const el = document.createElement('i');
+    el.className = `mt ${kind}`;
+    el.style.setProperty('--len', `${Math.round(big ? 260 + Math.random() * 200 : 130 + Math.random() * 110)}px`);
+    sky.appendChild(el);
+    const at = (x, y) => `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px) rotate(${rot.toFixed(1)}deg)`;
+    const a = el.animate([
+      { transform: at(x0, y0), opacity: 0 },
+      { opacity: 1, offset: 0.14 },
+      { opacity: big ? 1 : 0.9, offset: 0.7 },
+      { transform: at(x1, y1), opacity: 0 },
+    ], { duration: big ? 1500 + Math.random() * 800 : 650 + Math.random() * 450, easing: 'cubic-bezier(.3,.1,.6,1)' });
+    a.onfinish = a.oncancel = () => el.remove();
+    return { x: x0, y: y0, dir, angle };
+  }
+
+  function next() {
+    timer = 0;
+    if (!wanted()) return;
+    const r = Math.random();
+    if (r < 0.08) {
+      // Shower: a handful from the same patch of sky, a beat apart.
+      const lead = fly('meteor');
+      const n = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < n; i++) setTimeout(() => { if (wanted()) fly('star', lead); }, 140 + i * (120 + Math.random() * 200));
+    } else {
+      fly(r < 0.36 ? 'meteor' : 'star');
+    }
+    timer = setTimeout(next, 2200 + Math.random() * 4800);
+  }
+
+  function sync() {
+    if (wanted()) { if (!timer) timer = setTimeout(next, 900 + Math.random() * 1500); }
+    else {
+      clearTimeout(timer); timer = 0;
+      sky.getAnimations({ subtree: true }).forEach((a) => a.cancel());
+    }
+  }
+  window.__meteors = { sync, fly };
+  document.addEventListener('visibilitychange', sync);
+  window.addEventListener('focus', sync);
+  window.addEventListener('blur', sync);
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  sync();
 })();
 
 // Main flips this while Minecraft is running; style.css then freezes every
@@ -525,6 +597,7 @@ function renderCustomizeNow() {
   document.getElementById('anim-toggle').checked = theme.animations;
   document.getElementById('ui-motion-toggle').checked = theme.uiMotion !== false;
   document.getElementById('particles-toggle').checked = theme.particles;
+  document.getElementById('meteors-toggle').checked = theme.meteors !== false;
   document.getElementById('parallax-toggle').checked = theme.parallax;
   document.getElementById('trail-toggle').checked = theme.trail;
   document.getElementById('lowgfx-toggle').checked = !!theme.lowGraphics;
@@ -584,6 +657,7 @@ document.getElementById('glass-alpha').addEventListener('input', (e) => {
 document.getElementById('anim-toggle').addEventListener('change', (e) => { theme.animations = e.target.checked; saveTheme(); applyTheme(); });
 document.getElementById('ui-motion-toggle').addEventListener('change', (e) => { theme.uiMotion = e.target.checked; saveTheme(); applyTheme(); });
 document.getElementById('particles-toggle').addEventListener('change', (e) => { theme.particles = e.target.checked; saveTheme(); applyTheme(); });
+document.getElementById('meteors-toggle').addEventListener('change', (e) => { theme.meteors = e.target.checked; saveTheme(); applyTheme(); });
 document.getElementById('parallax-toggle').addEventListener('change', (e) => { theme.parallax = e.target.checked; saveTheme(); if (!theme.parallax) resetParallax(); });
 document.getElementById('trail-toggle').addEventListener('change', (e) => { theme.trail = e.target.checked; saveTheme(); });
 // Lightweight graphics. The quality governor sets theme.lowGraphics on its
@@ -1094,22 +1168,74 @@ function navInk() {
     side.appendChild(ink);
   }
   const on = side.querySelector('.nav-btn.active');
-  if (!betaLayoutOn() || !on || !on.offsetParent) { ink.classList.remove('on'); return; }
-  const h = 22;
-  ink.style.transform = `translateY(${Math.round(on.offsetTop + (on.offsetHeight - h) / 2)}px)`;
+  if (!betaLayoutOn() || !on) { ink.classList.remove('on'); return; }
+  // Reading offsetTop mid-click forces a full layout before the view swap
+  // does its own; the buttons only move when the window or layout changes.
+  navInkMeasure(side);
+  if (on._inkY == null) { ink.classList.remove('on'); return; }
+  const next = `0px ${on._inkY}px`;
+  if (ink.classList.contains('on') && ink.style.translate && ink.style.translate !== next && !scMotionOff()) {
+    ink.classList.remove('moving');
+    void ink.offsetWidth;
+    ink.classList.add('moving');
+    clearTimeout(ink._moving);
+    ink._moving = setTimeout(() => ink.classList.remove('moving'), 450);
+  }
+  ink.style.translate = next;
   ink.classList.add('on');
+  requestAnimationFrame(() => setTimeout(() => {
+    const y = on.offsetParent ? Math.round(on.offsetTop + (on.offsetHeight - 24) / 2) : null;
+    if (y !== on._inkY) { side._inkKey = null; navInk(); }
+  }));
+}
+function navInkMeasure(side) {
+  const key = `${innerWidth}x${innerHeight}|${document.body.classList.contains('beta-layout')}`;
+  if (side._inkKey === key) return;
+  side._inkKey = key;
+  for (const b of side.querySelectorAll('.nav-btn')) {
+    b._inkY = b.offsetParent ? Math.round(b.offsetTop + (b.offsetHeight - 24) / 2) : null;
+  }
 }
 window.addEventListener('resize', scPerFrame(() => navInk()));
-function navFx(btn, view, e) {
+(window.requestIdleCallback || setTimeout)(() => {
+  const side = document.querySelector('.sidebar');
+  if (side) navInkMeasure(side);
+});
+// Beta: the page name slides out beside the sidebar button under the pointer.
+(function navTips() {
+  const side = document.querySelector('.sidebar');
+  if (!side) return;
+  let tip = null, on = null;
+  const hide = () => { on = null; tip?.classList.remove('on'); };
+  side.addEventListener('pointerover', (e) => {
+    const btn = e.target.closest('.nav-btn');
+    if (!btn || !betaLayoutOn()) { hide(); return; }
+    if (btn === on) return;
+    on = btn;
+    if (btn.title) {
+      btn.dataset.label = btn.title;
+      if (!btn.getAttribute('aria-label')) btn.setAttribute('aria-label', btn.title);
+      btn.removeAttribute('title');
+    }
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'nav-tip';
+      document.body.appendChild(tip);
+    }
+    tip.textContent = btn.dataset.label || '';
+    const r = btn.getBoundingClientRect();
+    tip.style.left = `${Math.round(r.right + 14)}px`;
+    tip.style.top = `${Math.round(r.top + r.height / 2)}px`;
+    tip.classList.remove('on');
+    void tip.offsetWidth;
+    tip.classList.add('on');
+  });
+  side.addEventListener('pointerleave', hide);
+  side.addEventListener('pointerdown', hide);
+  window.addEventListener('blur', hide);
+})();
+function navFx(btn, view) {
   if (scMotionOff()) return;
-  const r = btn.getBoundingClientRect();
-  const wrap = document.createElement('span');
-  wrap.className = 'nav-ripple-wrap';
-  wrap.innerHTML = '<span class="nav-ripple"></span>';
-  wrap.firstChild.style.left = `${(e?.clientX || r.left + r.width / 2) - r.left}px`;
-  wrap.firstChild.style.top = `${(e?.clientY || r.top + r.height / 2) - r.top}px`;
-  btn.appendChild(wrap);
-  setTimeout(() => wrap.remove(), 650);
   btn.classList.remove('nav-bounce');
   void btn.offsetWidth;
   btn.classList.add('nav-bounce');
@@ -1120,8 +1246,12 @@ function navFx(btn, view, e) {
     v.classList.remove('sc-view-up', 'sc-view-down');
     void v.offsetWidth;
     v.classList.add(idx > navPrevIdx ? 'sc-view-up' : 'sc-view-down');
+    document.documentElement.classList.add('sc-viewing');
     clearTimeout(v._viewFx);
-    v._viewFx = setTimeout(() => v.classList.remove('sc-view-up', 'sc-view-down'), 520);
+    v._viewFx = setTimeout(() => {
+      v.classList.remove('sc-view-up', 'sc-view-down');
+      document.documentElement.classList.remove('sc-viewing');
+    }, 420);
   }
   navPrevIdx = idx;
 }
@@ -1133,11 +1263,15 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     navFx(btn, view, e);
     navInk();
     if (betaLayoutOn()) closeCommunityStage();
-    if (document.getElementById('view-launchpad')?.classList.contains('active')
-      && (view === 'customize' || !launchPreviewSnap)) captureLaunchPreview();
+    if (document.getElementById('view-launchpad')?.classList.contains('active') && !launchPreviewSnap) captureLaunchPreview();
+    if (view === 'launchpad') queueLaunchPreview();
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById(`view-${view}`).classList.add('active');
-    if (view === 'customize') requestAnimationFrame(renderLaunchPreviews);
+    if (view === 'customize') {
+      setTimeout(() => {
+        if (document.getElementById('view-customize')?.classList.contains('active')) requestAnimationFrame(renderLaunchPreviews);
+      }, scMotionOff() ? 0 : 440);
+    }
     if (view === 'instances') { refreshInstances(); renderVersionGrid(); }
     if (view === 'mods') { refreshInstanceSelects(); refreshInstalledContent().then(searchMods); }
     if (view === 'settings') { refreshAccountSettings(); refreshDiscordSettings(); }
@@ -1259,7 +1393,13 @@ function ensureSkin3D() {
   return _skin3dPromise;
 }
 
-window.addEventListener('resize', () => { heroViewer?.requestRender(); skinsViewer?.requestRender(); });
+// Beta launch section scales with the window: 1 at the default 1320x840, up to 1.8.
+function fitLaunchScale() {
+  const z = Math.min(1.8, Math.max(1, Math.min(innerWidth / 1320, innerHeight / 840)));
+  document.documentElement.style.setProperty('--lz', z.toFixed(3));
+}
+fitLaunchScale();
+window.addEventListener('resize', () => { fitLaunchScale(); heroViewer?.requestRender(); skinsViewer?.requestRender(); });
 
 // ---------- custom dropdown (progressively enhances a native <select>) ----------
 function enhanceSelect(id) {
@@ -3271,7 +3411,7 @@ function renderCommunityStage() {
   const memPop = document.getElementById('cs-members-pop');
   if (memBtn) {
     const offN = members.length - onlineN;
-    memBtn.innerHTML = `${VOICE_ICONS.people}<span><b>${members.length}</b> ${members.length === 1 ? 'member' : 'members'}</span><span class="cs-mem-on" title="Online"><i></i>${onlineN}</span><span class="cs-mem-on off" title="Offline"><i></i>${offN}</span>`;
+    memBtn.innerHTML = `${VOICE_ICONS.people}<span><b>${members.length}</b> ${members.length === 1 ? 'member' : 'members'}</span><span class="cs-mem-on" data-tip="Online"><i></i>${onlineN}</span><span class="cs-mem-on off" data-tip="Offline"><i></i>${offN}</span>`;
     memBtn.title = `${members.length} ${members.length === 1 ? 'member' : 'members'}: ${onlineN} online, ${offN} offline`;
     memBtn.onclick = (e) => { e.stopPropagation(); csToggleMembers(); };
   }
@@ -4610,7 +4750,7 @@ async function openCommunityInvite(community) {
   pop.innerHTML = `
     <div class="cs-pop-head">
       <div class="cs-pop-title">Invite</div>
-      <button type="button" class="cs-x" id="cs-invite-x" title="Close">×</button>
+      <button type="button" class="cs-x" id="cs-invite-x" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div class="cs-link-row">
       <input class="cs-link" readonly value="${escapeHtml(link)}">
@@ -4760,13 +4900,22 @@ function applyBetaLayout(on) {
   renderAccountBox();
   renderCommunities();
   setTimeout(refreshOnlineIndicator, 0);
-  // Beta floating panels all share the admin panel's glass, so the extra
-  // per-panel blur only applies in the stable layout.
-  for (const el of document.querySelectorAll('#live-chat, #online-pop')) {
-    if (on && el.dataset.lqBlur) { el.dataset.lqBlurStable = el.dataset.lqBlur; delete el.dataset.lqBlur; }
-    else if (!on && el.dataset.lqBlurStable) { el.dataset.lqBlur = el.dataset.lqBlurStable; delete el.dataset.lqBlurStable; }
+  // Beta floating panels use the nav rail's glass, a little more frosted since they
+  // sit over everything; the stable layout keeps each panel's own blur.
+  for (const el of document.querySelectorAll('#live-chat, #online-pop, #updates-menu, #mod-modal .mod-panel')) {
+    if (on) {
+      if (el.dataset.lqBlurStable == null) el.dataset.lqBlurStable = el.dataset.lqBlur || '';
+      el.dataset.lqBlur = '5';
+    } else if (el.dataset.lqBlurStable != null) {
+      if (el.dataset.lqBlurStable) el.dataset.lqBlur = el.dataset.lqBlurStable; else delete el.dataset.lqBlur;
+      delete el.dataset.lqBlurStable;
+    }
   }
-  try { window.SolarLiquidGlass?.refreshAll?.(); } catch { /* glass engine optional */ }
+  try {
+    const bar = document.querySelector('.titlebar');
+    if (on) { bar.dataset.lqBlur = '5'; window.SolarLiquidGlass?.attach(bar); } else window.SolarLiquidGlass?.detach(bar);
+    window.SolarLiquidGlass?.refreshAll?.();
+  } catch { /* glass engine optional */ }
 }
 
 // ---------- launch-button style previews (beta) ----------
@@ -4843,6 +4992,9 @@ function captureLaunchPreview() {
   const hero = document.getElementById('launchpad-hero');
   if (!hero || !hero.offsetWidth) return;
   const r = hero.getBoundingClientRect();
+  const sig = [r.left, r.top, r.width, r.height].map(Math.round).join(',')
+    + `|${hero.textContent.replace(/\s+/g, ' ')}|${document.body.className}|${document.documentElement.style.cssText}`;
+  if (launchPreviewSnap?.sig === sig) return;
   const wasPurple = document.body.classList.contains('launch-style-purple');
   const copies = {};
   for (const style of ['purple', 'glass']) {
@@ -4856,10 +5008,22 @@ function captureLaunchPreview() {
     .map(frozenClone).filter(Boolean);
   const m = main.getBoundingClientRect();
   launchPreviewSnap = {
-    copies, shell,
+    sig, copies, shell, bg: frozenClone(document.querySelector('.bg-stack')),
     hero: { x: r.left, y: r.top, w: r.width, h: r.height },
     main: { x: m.left, y: m.top, w: m.width, h: m.height },
   };
+}
+
+// Copying the hero restyles the page twice, far too slow to do in the click
+// that leaves the Launchpad. It's re-taken once the Launchpad has settled
+// and sat idle, and only when something on it changed.
+let launchPreviewIdle = 0;
+function queueLaunchPreview() {
+  if (launchPreviewIdle) return;
+  launchPreviewIdle = setTimeout(() => requestIdleCallback(() => {
+    launchPreviewIdle = 0;
+    if (document.getElementById('view-launchpad')?.classList.contains('active') && !document.hidden) captureLaunchPreview();
+  }, { timeout: 4000 }), 1500);
 }
 
 function placeAt(el, x, y, w, h) {
@@ -4877,6 +5041,9 @@ function renderLaunchPreviews() {
   const snap = launchPreviewSnap;
   document.querySelectorAll('.ls-option').forEach((opt) => {
     const box = opt.querySelector('.ls-preview');
+    if (snap && box._snap === snap && box._w === box.clientWidth && box.firstChild) return;
+    box._snap = snap;
+    box._w = box.clientWidth;
     box.textContent = '';
     box.style.height = '';
     if (!snap) {
@@ -4895,7 +5062,7 @@ function renderLaunchPreviews() {
     stage.style.height = `${hero.h}px`;
     stage.style.transform = `scale(${s})`;
 
-    const bg = frozenClone(document.querySelector('.bg-stack'));
+    const bg = snap.bg?.cloneNode(true);
     if (bg) {
       placeAt(bg, -hero.x, -hero.y, window.innerWidth, window.innerHeight);
       stage.appendChild(bg);
@@ -4935,8 +5102,10 @@ document.querySelectorAll('[data-launch-style]').forEach((b) => {
 });
 window.addEventListener('resize', () => {
   if (document.getElementById('view-customize')?.classList.contains('active')) renderLaunchPreviews();
+  else queueLaunchPreview();
 });
 applyLaunchStyle();
+queueLaunchPreview();
 
 async function doLogin() {
   try {
@@ -5083,12 +5252,34 @@ function groupByLoader(instances) {
   return keys.map(k => [k, buckets.get(k).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))]);
 }
 
+const VS_EMPTY = `
+  <div class="vs-empty">
+    <div class="vs-empty-ghosts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="vs-empty-body">
+      <span class="vs-empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></span>
+      <b class="vs-empty-title">No instances yet</b>
+      <span class="vs-empty-sub">Pick a version up top, choose a loader and hit Create. Your instances show up right here.</span>
+      <button type="button" class="vs-empty-go">Create your first instance</button>
+    </div>
+  </div>`;
 async function refreshInstances() {
   const [list, playtime] = await Promise.all([window.nebula.listInstances(), window.nebula.getPlaytime()]);
   const el = document.getElementById('instance-list');
   el.innerHTML = '';
+  const instCount = document.getElementById('vs-inst-count');
+  if (instCount) instCount.textContent = list.length;
   if (!list.length) {
-    el.innerHTML = '<p class="dim">Pick a version below to create your first instance.</p>';
+    el.innerHTML = betaLayoutOn() ? VS_EMPTY : '<p class="dim">Pick a version below to create your first instance.</p>';
+    el.querySelector('.vs-empty-go')?.addEventListener('click', () => {
+      const view = document.getElementById('view-instances');
+      view.scrollTo({ top: 0, behavior: 'smooth' });
+      const btn = document.getElementById('picker-create');
+      if (!btn) return;
+      btn.classList.remove('vs-flash');
+      void btn.offsetWidth;
+      btn.classList.add('vs-flash');
+      setTimeout(() => btn.classList.remove('vs-flash'), 1700);
+    });
     refreshInstanceSelects(list);
     return;
   }
@@ -5105,9 +5296,10 @@ async function refreshInstances() {
       const pt = playtime[`${inst.versionNumber}|${inst.name}`];
       const ptStr = pt && pt.ms ? fmtPlaytime(pt.ms) : '';
       const card = document.createElement('div');
-      card.className = `instance-card liquid-glass loader-${key}`;
+      const art = buildArt(inst.versionNumber) || mojangArtFor(inst.group.replace('.x', ''), versionGroups.find((g) => g.group === inst.group)?.versions);
+      card.className = `instance-card liquid-glass loader-${key}${art ? ' has-art' : ''}`;
       card.innerHTML = `
-        <div class="art">${inst.group.replace('.x', '')}</div>
+        <div class="art">${artImg(art)}<span class="art-label">${inst.group.replace('.x', '')}</span></div>
         <div class="body">
           <div class="name">${escapeHtml(inst.name)}</div>
           <div class="meta">${versionLoaderLabel(inst.versionNumber, key)}${ptStr ? ` · <span class="playtime-badge">${ptStr}</span>` : ''}</div>
@@ -5222,24 +5414,84 @@ function starPositions(seed, count) {
   return pts;
 }
 
+// Beta: Mojang's own artwork for each release, from the Java patch notes feed the
+// official launcher uses. Cached for a day; releases without art keep the plain tile.
+const MJ_ART_KEY = 'sc-mojang-art';
+let mojangArt = null;
+let mojangArtLoading = false;
+function loadMojangArt() {
+  if (mojangArt || mojangArtLoading) return;
+  try {
+    const c = JSON.parse(localStorage.getItem(MJ_ART_KEY) || 'null');
+    if (c && Date.now() - c.t < 86400000) { mojangArt = c.map; return; }
+  } catch { /* corrupt cache: refetch */ }
+  mojangArtLoading = true;
+  fetch('https://launchercontent.mojang.com/v2/javaPatchNotes.json')
+    .then((r) => r.json())
+    .then((j) => {
+      const map = {};
+      for (const e of j.entries || []) {
+        if (e.type === 'release' && e.version && e.image?.url) map[e.version] = `https://launchercontent.mojang.com${e.image.url}`;
+      }
+      mojangArt = map;
+      try { localStorage.setItem(MJ_ART_KEY, JSON.stringify({ t: Date.now(), map })); } catch { /* quota */ }
+      if (document.getElementById('view-instances')?.classList.contains('active')) { renderVersionGrid(); refreshInstances(); }
+    })
+    .catch(() => {})
+    .finally(() => { mojangArtLoading = false; });
+}
+// Bundled 960x540 art (official key art from 1.13 on, era shots before). Preferred
+// over the feed, whose images are small squares (240px up to 1.20). Newer drops
+// fall back to the feed.
+const LOCAL_ART = new Set(['1.0', '1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7', '1.8', '1.9', '1.10', '1.11',
+  '1.12', '1.13', '1.14', '1.15', '1.16', '1.17', '1.18', '1.19', '1.20', '1.21']);
+/** Bundled art for the group, else its own drop art (26.1…), else the newest build in it that has art. */
+function mojangArtFor(label, versions = []) {
+  if (LOCAL_ART.has(label)) return `img/versions/${label}.jpg`;
+  return mojangArt ? (mojangArt[label] || versions.map((v) => mojangArt[v]).find(Boolean) || '') : '';
+}
+/** One build's art: bundled group art first, then that build's own feed image. */
+function buildArt(v) {
+  const g = versionGroups.find((x) => x.versions.includes(v));
+  const label = g ? g.group.replace('.x', '') : '';
+  if (LOCAL_ART.has(label)) return `img/versions/${label}.jpg`;
+  return (mojangArt && mojangArt[v]) || (g ? mojangArtFor(label, g.versions) : '');
+}
+function artImg(url) {
+  return url ? `<img class="vt-img beta-only" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" draggable="false">` : '';
+}
+
 function renderVersionGrid() {
   const grid = document.getElementById('version-grid');
   if (!grid) return;
   if (!versionGroups.length) { grid.innerHTML = '<p class="dim">Loading versions…</p>'; return; }
+  if (betaLayoutOn()) loadMojangArt();
 
-  grid.innerHTML = versionGroups.map(g => {
+  grid.innerHTML = versionGroups.map((g, i) => {
     const h = hashStr(g.group);
     const [c1, c2] = SPACE_PALETTES[h % SPACE_PALETTES.length];
+    const n = g.versions.length;
+    const label = g.group.replace('.x', '');
+    const range = n > 1 ? `${g.versions[n - 1]} – ${g.versions[0]}` : (g.versions[0] !== label ? g.versions[0] : '');
+    const art = mojangArtFor(label, g.versions);
     return `
-    <div class="version-tile space-tile" data-group="${g.group}">
+    <div class="version-tile space-tile${art ? ' has-art' : ''}" data-group="${g.group}">
       <div class="art" style="background:radial-gradient(ellipse at 30% 25%, ${c1}, ${c2} 70%, #0a0714 130%);">
         <div class="tile-stars"></div>
-        <span class="art-label">${g.group.replace('.x', '')}</span>
+        ${artImg(art)}
+        <span class="art-label">${label}</span>
+        ${i === 0 ? '<i class="um-pill vt-latest beta-only">Latest</i>' : ''}
       </div>
-      <div class="version-tile-count">${g.versions.length} version${g.versions.length !== 1 ? 's' : ''}</div>
+      <div class="version-tile-count">
+        <span class="vt-n">${n} version${n !== 1 ? 's' : ''}</span>
+        ${range ? `<small class="vt-range beta-only">${escapeHtml(range)}</small>` : ''}
+        <span class="vt-make beta-only">Create</span>
+      </div>
     </div>
   `;
   }).join('');
+  const allCount = document.getElementById('vs-all-count');
+  if (allCount) allCount.textContent = versionGroups.length;
 
   // scatter a few CSS-only twinkling stars per tile
   grid.querySelectorAll('.tile-stars').forEach((el, i) => {
@@ -5248,8 +5500,20 @@ function renderVersionGrid() {
   });
 
   grid.querySelectorAll('.version-tile').forEach(tile => {
-    tile.addEventListener('click', () => openVersionPicker(tile.dataset.group));
+    tile.addEventListener('click', () => {
+      if (betaLayoutOn() && tile.dataset.group === pickedGroup && !document.getElementById('version-picker-panel').classList.contains('hidden')) return;
+      openVersionPicker(tile.dataset.group);
+    });
   });
+
+  // Beta: the picker is always open. Re-renders (art arriving) keep what's open
+  // instead of rebuilding it under the user; otherwise it starts on the newest.
+  if (betaLayoutOn()) {
+    const panel = document.getElementById('version-picker-panel');
+    const open = !panel.classList.contains('hidden') && versionGroups.some((g) => g.group === pickedGroup);
+    if (open) markPickedTile(pickedGroup);
+    else openVersionPicker(versionGroups[0].group, { scroll: false });
+  }
 }
 
 // The Versions tab has its own loader dropdown, and it had exactly the
@@ -5273,6 +5537,7 @@ async function wirePickerLoaderFilter(allVersions) {
       : '<option value="">No versions support this loader</option>';
     if (list.includes(prev)) verSel.value = prev;
     verSel._refreshCustomSelect?.();
+    verSel.dispatchEvent(new Event('picker-list'));
     const createBtn = document.getElementById('picker-create');
     if (createBtn) createBtn.disabled = !list.length;
     if (nameInput && list.length && !nameInput.dataset.touched) {
@@ -5291,32 +5556,87 @@ async function wirePickerLoaderFilter(allVersions) {
   await apply();
 }
 
-function openVersionPicker(groupKey) {
+let pickedGroup = null;
+function openVersionPicker(groupKey, { scroll = true } = {}) {
   const group = versionGroups.find(g => g.group === groupKey);
   if (!group) return;
   const panel = document.getElementById('version-picker-panel');
   panel.classList.remove('hidden');
-  panel.innerHTML = `
-    <div class="version-picker-header">Choose a build from ${groupKey.replace('.x', '')}</div>
-    <div class="version-picker-row">
-      <select id="picker-version"></select>
-      <input id="picker-name" placeholder="Instance name">
-      <select id="picker-loader">
-        <option value="vanilla">Vanilla</option>
-        <option value="fabric">Fabric</option>
-        <option value="forge">Forge</option>
-        <option value="quilt">Quilt</option>
-      </select>
-      <button id="picker-create" class="pill-btn primary">Create instance</button>
-    </div>
-  `;
+  panel.innerHTML = pickerHtml(`Choose a build from ${groupKey.replace('.x', '')}`);
   document.getElementById('picker-version').innerHTML = group.versions.map(v => `<option value="${v}">${v}</option>`).join('');
   document.getElementById('picker-name').value = `My ${group.versions[0]} world`;
+  pickerDefaults(group.versions);
   enhanceSelect('picker-version');
   enhanceSelect('picker-loader');
   wirePickerCreate(panel);
   wirePickerLoaderFilter(group.versions);
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  wirePickerExtras(panel, group.versions);
+  markPickedTile(groupKey);
+  if (scroll) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+const PICKER_LOADERS = ['vanilla', 'fabric', 'forge', 'quilt'];
+/** Shared picker markup. The art, loader buttons and field labels are beta-only;
+    .vp-field is display:contents on stable so the old one-row layout is unchanged. */
+function pickerHtml(title) {
+  return `
+    <div class="vp-art beta-only"><img class="vp-art-img" alt="" draggable="false"><span class="vp-art-label"></span></div>
+    <div class="vp-main">
+      <div class="version-picker-header"><span class="vp-title">${title}</span></div>
+      <div class="vp-loaders beta-only">
+        ${PICKER_LOADERS.map((l) => `<button type="button" class="vp-ld loader-${l}" data-loader="${l}"><i class="igl-dot"></i>${loaderLabel(l)}</button>`).join('')}
+      </div>
+      <div class="version-picker-row">
+        <div class="vp-field vp-f-ver"><span class="vp-lbl beta-only">Build</span><select id="picker-version"></select></div>
+        <div class="vp-field vp-f-name"><span class="vp-lbl beta-only">Name</span><input id="picker-name" placeholder="Instance name"></div>
+        <div class="vp-field vp-f-ld"><select id="picker-loader">
+          ${PICKER_LOADERS.map((l) => `<option value="${l}">${loaderLabel(l)}</option>`).join('')}
+        </select></div>
+        <button id="picker-create" class="pill-btn primary">Create instance</button>
+      </div>
+    </div>
+  `;
+}
+/** Beta: start on Fabric whenever any build in the list can run it. */
+function pickerDefaults(versions) {
+  if (!betaLayoutOn() || !versions.some((v) => meetsLoaderFloor('fabric', v))) return;
+  document.getElementById('picker-loader').value = 'fabric';
+}
+/** Beta: loader buttons drive the hidden loader select; the art follows the chosen build. */
+function wirePickerExtras(panel, versions) {
+  const loaderSel = document.getElementById('picker-loader');
+  const verSel = document.getElementById('picker-version');
+  const btns = [...panel.querySelectorAll('.vp-ld')];
+  const syncLoaders = () => btns.forEach((b) => b.classList.toggle('on', b.dataset.loader === loaderSel.value));
+  for (const b of btns) {
+    b.disabled = !versions.some((v) => meetsLoaderFloor(b.dataset.loader, v));
+    b.addEventListener('click', () => {
+      if (loaderSel.value === b.dataset.loader) return;
+      loaderSel.value = b.dataset.loader;
+      loaderSel._refreshCustomSelect?.();
+      loaderSel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+  loaderSel.addEventListener('change', syncLoaders);
+  syncLoaders();
+  const img = panel.querySelector('.vp-art-img');
+  const label = panel.querySelector('.vp-art-label');
+  const syncArt = () => {
+    const v = verSel.value;
+    const url = buildArt(v);
+    panel.classList.toggle('vp-has-art', !!url);
+    if (url) img.src = url; else img.removeAttribute('src');
+    label.textContent = v || '';
+  };
+  verSel.addEventListener('change', syncArt);
+  verSel.addEventListener('picker-list', syncArt);
+  syncArt();
+}
+
+/** Beta: the tile whose builds are open stays lit. */
+function markPickedTile(groupKey) {
+  pickedGroup = groupKey;
+  document.querySelectorAll('#version-grid .version-tile').forEach((t) => t.classList.toggle('is-picked', t.dataset.group === groupKey));
 }
 
 // Opened from the "+ New instance" button in the header — same picker,
@@ -5326,26 +5646,16 @@ function openVersionPickerFlat() {
   const panel = document.getElementById('version-picker-panel');
   panel.classList.remove('hidden');
   const allVersions = versionGroups.flatMap(g => g.versions);
-  panel.innerHTML = `
-    <div class="version-picker-header">Create a new instance</div>
-    <div class="version-picker-row">
-      <select id="picker-version"></select>
-      <input id="picker-name" placeholder="Instance name">
-      <select id="picker-loader">
-        <option value="vanilla">Vanilla</option>
-        <option value="fabric">Fabric</option>
-        <option value="forge">Forge</option>
-        <option value="quilt">Quilt</option>
-      </select>
-      <button id="picker-create" class="pill-btn primary">Create instance</button>
-    </div>
-  `;
+  panel.innerHTML = pickerHtml('Create a new instance');
   document.getElementById('picker-version').innerHTML = allVersions.map(v => `<option value="${v}">${v}</option>`).join('');
   document.getElementById('picker-name').value = `My ${allVersions[0]} world`;
+  pickerDefaults(allVersions);
   enhanceSelect('picker-version');
   enhanceSelect('picker-loader');
   wirePickerCreate(panel);
   wirePickerLoaderFilter(allVersions);
+  wirePickerExtras(panel, allVersions);
+  markPickedTile(null);
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -5355,7 +5665,10 @@ function wirePickerCreate(panel) {
     const name = document.getElementById('picker-name').value.trim() || `My ${versionNumber} world`;
     const loader = document.getElementById('picker-loader').value;
     await window.nebula.createInstance({ name, versionNumber, loader });
-    panel.classList.add('hidden');
+    if (!betaLayoutOn()) {
+      panel.classList.add('hidden');
+      markPickedTile(null);
+    }
     showToast('Instance created', `${name} (${versionNumber})`, 'success');
     refreshInstances();
   });
@@ -6552,7 +6865,7 @@ function fmtLeft(ms) {
     screen.classList.toggle('hidden', !ban);
     clearInterval(tick); tick = null;
     if (!ban) return;
-    try { for (const k of ['admin', 'chat', 'online']) if (scFloat.get(k)?.win) scDock(k, { shut: true }); } catch { /* not wired yet */ }
+    try { for (const k of ['admin', 'chat', 'online', 'updates']) if (scFloat.get(k)?.win) scDock(k, { shut: true }); } catch { /* not wired yet */ }
     document.getElementById('mod-modal')?.classList.add('hidden');
     document.getElementById('live-chat')?.classList.add('hidden');
     paint();
@@ -7246,7 +7559,7 @@ function scAgo(t) {
 
 /**
  * Beta floating panels grow and shrink their contents with the box: text and
- * controls scale with the width between 90% and 122%, so a bigger box shows
+ * controls scale with the width between 80% and 122%, so a bigger box shows
  * bigger, not just emptier, and a small one never clips.
  */
 function scPanelScale(panel, baseW) {
@@ -7254,11 +7567,11 @@ function scPanelScale(panel, baseW) {
   panel._scScale = true;
   const apply = () => {
     if (!betaLayoutOn()) { panel.style.removeProperty('--sc-zoom'); return; }
-    // Re-zooming every frame of a resize drag re-lays out all the text each frame; it's applied once on release.
-    if (panel.closest('.resizing')) return;
     const w = panel.offsetWidth;
     if (!w) return;
-    const z = Math.max(0.9, Math.min(1.22, w / baseW));
+    let z = Math.max(0.8, Math.min(1.22, w / baseW));
+    // Mid-resize it moves in 2.5% steps: re-sizing the text is the costly part, and every pixel is too often.
+    if (panel.closest('.resizing')) z = Math.round(z * 40) / 40;
     panel.style.setProperty('--sc-zoom', z.toFixed(3));
     panel.classList.toggle('sc-wide', w / z >= 540);
     panel.classList.toggle('sc-narrow', w / z < 380);
@@ -7277,7 +7590,7 @@ let scZoomLegacy = null;
 /** getBoundingClientRect in real window pixels, even inside a scaled panel. */
 function scRect(el) {
   const r = el.getBoundingClientRect();
-  const host = el.closest?.('#live-chat, #mod-modal .mod-panel');
+  const host = el.closest?.('#live-chat, #mod-modal .mod-panel, #online-pop');
   const z = host ? parseFloat(host.style.getPropertyValue('--sc-zoom')) : 1;
   if (!z || z === 1) return r;
   if (scZoomLegacy === null) {
@@ -7298,18 +7611,24 @@ function scMotionOff() {
 }
 
 function popDown(panel, chip) {
-  if (!panel || scMotionOff()) return;
+  if (!panel) return;
+  // Glass is painted before the first frame it's seen in, not a frame or two after.
+  if (panel.classList.contains('liquid-glass')) window.SolarLiquidGlass?.paintNow?.(panel);
+  if (scMotionOff()) return;
   clearTimeout(panel._popOutTimer);
+  panel.removeEventListener('animationend', panel._popOutEnd);
   panel.classList.remove('sc-pop-out');
   const r = panel.getBoundingClientRect();
   const c = chip?.getBoundingClientRect();
   const ox = c ? Math.max(0, Math.min(r.width, c.left + c.width / 2 - r.left)) : r.width / 2;
   panel.style.setProperty('--pop-ox', `${Math.round(ox)}px`);
+  panel.style.removeProperty('--pop-oy');
+  panel._popChip = chip || null;
   panel.classList.remove('sc-pop');
   void panel.offsetWidth;
   panel.classList.add('sc-pop');
   clearTimeout(panel._popTimer);
-  panel._popTimer = setTimeout(() => panel.classList.remove('sc-pop'), 380);
+  panel._popTimer = setTimeout(() => panel.classList.remove('sc-pop'), 560);
   chip?.classList.remove('sc-chip-press');
   void chip?.offsetWidth;
   chip?.classList.add('sc-chip-press');
@@ -7320,6 +7639,9 @@ const SC_RIPPLE = [
   '#mod-modal .mod-tab', '#mod-modal .mod-filter button', '#mod-modal .mod-act', '#mod-modal .pill-btn',
   '#online-pop .op-views button', '#online-pop .op-act',
   '#live-chat-send', '.sc-hbtn', '.mod-icon-btn', '.live-chat-x',
+  '.pill-btn', '.launch-btn', '.bedrock-launch', '.launch-another', '.chip', '.edition-btn', '.rail-plus',
+  '.um-primary', '.um-ghost', '.um-check', '.fr-tab', '.mod-new', '.model-btn', '.se-tool',
+  '#community-stage .cs-tool', '#community-stage .cs-send', '#community-stage .cs-leave',
 ].join(', ');
 
 /** Beta: a ripple spreads from where you pressed. */
@@ -7343,6 +7665,92 @@ function scRipple(e) {
   setTimeout(() => wrap.remove(), 650);
 }
 document.addEventListener('pointerdown', scRipple, true);
+
+// Beta: every button sinks when pressed and springs back past its size when
+// released. Runs on the separate `scale` property so it stacks with each
+// button's own hover/press transform instead of replacing it.
+(function scPressSpring() {
+  const SEL = 'button, .nav-btn, .rail-avatar, .rail-comm, .cs-ch, [role="button"], summary';
+  const KEY = { easing: 'cubic-bezier(.3,.7,.4,1)' };
+  let held = null, press = null, sx = 0, sy = 0, moved = false;
+  function ownScale(el) {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === 'none') return 1;
+    const m = /^matrix\(([^,]+),\s*([^,]+)/.exec(t);
+    return m && Math.abs(+m[2]) < 0.001 ? +m[1] : 0;
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || scMotionOff()) return;
+    const el = e.target.closest?.(SEL);
+    if (!el || el.disabled || el.offsetWidth > 520 || el.offsetHeight > 160) return;
+    held = el; moved = false; sx = e.clientX; sy = e.clientY;
+    press?.cancel(); press = null;
+    // Buttons that already shrink on :active keep their own press; the rest get one.
+    requestAnimationFrame(() => {
+      if (held !== el || Math.abs(ownScale(el) - 1) > 0.004) return;
+      press = el.animate([{ scale: 1 }, { scale: 0.95 }], { duration: 110, easing: 'cubic-bezier(.3,.7,.4,1)', fill: 'forwards' });
+    });
+  }, true);
+  document.addEventListener('pointermove', (e) => {
+    if (held && !moved && Math.hypot(e.clientX - sx, e.clientY - sy) > 6) moved = true;
+  }, { passive: true });
+  const letGo = () => {
+    const el = held;
+    held = null;
+    if (!el) return;
+    const from = press ? 0.95 : 1;
+    press?.cancel(); press = null;
+    if (moved || !el.isConnected) return;
+    el.animate([
+      { scale: from, ...KEY },
+      { scale: from < 1 ? 1.045 : 1.03, offset: 0.38, ...KEY },
+      { scale: 0.992, offset: 0.72, ...KEY },
+      { scale: 1 },
+    ], { duration: 460 });
+  };
+  document.addEventListener('pointerup', letGo, true);
+  document.addEventListener('pointercancel', letGo, true);
+})();
+
+// Beta: a soft light follows the pointer across whichever glass surface it's
+// over, and the rim catches it nearest the cursor. The community stage is left
+// out: repainting it every move costs frames.
+(function glassLight() {
+  const SKIP = '#community-stage';
+  let surf = null, shine = null, rect = null, k = 1, x = 0, y = 0, queued = false;
+  const drop = () => { rect = null; };
+  window.addEventListener('resize', drop, { passive: true });
+  window.addEventListener('scroll', drop, { passive: true, capture: true });
+  function setSurf(next) {
+    if (next === surf) return;
+    shine?.classList.remove('lit');
+    surf = next; rect = null;
+    shine = surf?.querySelector(':scope > .lq-shine') || null;
+    if (!shine) surf = null;
+  }
+  function apply() {
+    queued = false;
+    if (!shine) return;
+    if (!rect) {
+      rect = surf.getBoundingClientRect();
+      k = surf.offsetWidth ? rect.width / surf.offsetWidth : 1;
+    }
+    shine.style.setProperty('--gx', `${((x - rect.left) / k).toFixed(1)}px`);
+    shine.style.setProperty('--gy', `${((y - rect.top) / k).toFixed(1)}px`);
+    shine.classList.add('lit');
+  }
+  document.addEventListener('pointermove', (e) => {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    if (e.buttons || scMotionOff() || document.body.classList.contains('perf-lite')) { setSurf(null); return; }
+    let s = e.target.closest?.('.liquid-glass.lq-surface') || null;
+    if (s?.matches(SKIP)) s = null;
+    setSurf(s);
+    if (!surf) return;
+    x = e.clientX; y = e.clientY;
+    if (!queued) { queued = true; requestAnimationFrame(apply); }
+  }, { passive: true });
+  document.documentElement.addEventListener('pointerleave', () => setSurf(null));
+})();
 
 /**
  * Beta: slow looping motion (nebula drift, skin bob, sheens, pulsing dots) is
@@ -7394,14 +7802,40 @@ document.addEventListener('pointerdown', scRipple, true);
   sync();
 })();
 
-/** Beta: fold a panel back up into its button, then run hide(). */
+/** Beta: the panel swells, then gets pulled into the button that opened it, which catches it; then hide(). */
 function popClose(panel, hide) {
   if (!panel || scMotionOff() || panel.classList.contains('hidden') || panel._scQuiet) { panel && (panel._scQuiet = false); hide(); return; }
   clearTimeout(panel._popTimer);
   panel.classList.remove('sc-pop');
+  const chip = panel._popChip;
+  const c = chip?.isConnected && chip.ownerDocument === panel.ownerDocument ? chip.getBoundingClientRect() : null;
+  if (c?.width) {
+    // Origin can sit outside the panel: scaling toward it is what carries the panel into the button.
+    const r = panel.getBoundingClientRect();
+    const k = panel.offsetWidth ? r.width / panel.offsetWidth : 1;
+    panel.style.setProperty('--pop-ox', `${Math.round((c.left + c.width / 2 - r.left) / k)}px`);
+    panel.style.setProperty('--pop-oy', `${Math.round((c.top + c.height / 2 - r.top) / k)}px`);
+  }
   panel.classList.add('sc-pop-out');
   clearTimeout(panel._popOutTimer);
-  panel._popOutTimer = setTimeout(() => { panel.classList.remove('sc-pop-out'); hide(); }, 170);
+  panel.removeEventListener('animationend', panel._popOutEnd);
+  const finish = () => {
+    panel.removeEventListener('animationend', panel._popOutEnd);
+    clearTimeout(panel._popOutTimer);
+    if (!panel.classList.contains('sc-pop-out')) return;
+    panel.classList.remove('sc-pop-out');
+    hide();
+    if (!c?.width) return;
+    chip.classList.remove('sc-chip-press', 'sc-chip-catch');
+    void chip.offsetWidth;
+    chip.classList.add('sc-chip-catch');
+    clearTimeout(chip._catchTimer);
+    chip._catchTimer = setTimeout(() => chip.classList.remove('sc-chip-catch'), 520);
+  };
+  panel._popOutEnd = (e) => { if (e.target === panel && e.animationName === 'sc-pop-lift-y') finish(); };
+  panel.addEventListener('animationend', panel._popOutEnd);
+  // In case the animation never gets to run.
+  panel._popOutTimer = setTimeout(finish, 480);
 }
 
 // ---------- Beta: floating panels (live chat, admin panel) ----------
@@ -7500,10 +7934,17 @@ function scFreeSpot(x, y, w, h, avoid) {
 }
 
 const scFloatOthers = (f) => [...scFloat.values()].filter((o) => o !== f && !o.win && o.isOpen());
-// html.sc-moving while a panel is dragged or resized: the glass skips its refraction pass (see style.css).
-const SC_MOVERS = ['live-chat', 'online-pop', 'mod-modal'];
+// html.sc-moving while a panel is dragged or resized.
+const SC_MOVERS = ['live-chat', 'online-pop', 'mod-modal', 'updates-menu'];
+let scDownAt = null;
+document.addEventListener('pointerdown', (e) => { scDownAt = { clientX: e.clientX, clientY: e.clientY }; }, true);
 const scMovingObs = new MutationObserver(() => {
   document.documentElement.classList.toggle('sc-moving', SC_MOVERS.some((id) => /\b(dragging|resizing)\b/.test(document.getElementById(id)?.className || '')));
+  // Lifts the moment it's grabbed, in the same frame .dragging scales it up, so that never snaps.
+  if (!betaLayoutOn() || !scDownAt) return;
+  for (const f of scFloat.values()) {
+    if (!f.lift && !f.win && (f.host || f.panel).classList.contains('dragging')) scLift(f, scDownAt);
+  }
 });
 for (const id of SC_MOVERS) {
   const n = document.getElementById(id);
@@ -7534,7 +7975,14 @@ function scFloatBump(f, { force = false } = {}) {
     if (hit <= 0 || hitY <= 0 || (!force && Math.min(hit, hitY) < 18)) continue;
     const best = scFreeSpot(b.left, b.top, b.width, b.height, [a, ...others.filter((p) => p !== o).map(scFloatRect)]);
     if (!best || (Math.abs(best.x - b.left) < 2 && Math.abs(best.y - b.top) < 2)) continue;
-    scFloatGlide(o, best.x, best.y);
+    // Mid-drag, one already on its way only re-aims for a real change; each re-aim costs a few layouts.
+    if (!force && o.glide && Math.hypot(best.x - b.left, best.y - b.top) < 36 && scOverlap(a, b) <= 0) continue;
+    // Its way out is on the far side of the one being dragged: it ducks under on the way.
+    const now = o.panel.getBoundingClientRect();
+    const ax = (a.left + a.right) / 2, ay = (a.top + a.bottom) / 2;
+    const side = (cx, cy) => (Math.abs(cx - ax) / a.width >= Math.abs(cy - ay) / a.height ? Math.sign(cx - ax) : 2 * Math.sign(cy - ay));
+    const under = side((now.left + now.right) / 2, (now.top + now.bottom) / 2) !== side(best.x + b.width / 2, best.y + b.height / 2);
+    scFloatGlide(o, best.x, best.y, { under });
   }
 }
 
@@ -7545,20 +7993,56 @@ function scFloatFit(f, { glide = true } = {}) {
   const avoid = scFloatOthers(f).map(scFloatRect).filter((r) => r.width);
   if (!a.width || !avoid.some((r) => scOverlap(a, r) > 0)) return;
   const best = scFreeSpot(a.left, a.top, a.width, a.height, avoid);
-  if (!best) { scFloatSpread(f, { glide }); return; }
+  if (!best) {
+    if (scFloatSpread(f, { glide }) || scFloatShrink(f, avoid)) return;
+    // Still no room anywhere: panels never sit on top of each other, so the ones underneath close.
+    const now = scFloatRect(f);
+    for (const o of scFloatOthers(f)) if (scOverlap(now, scFloatRect(o)) > 0) o.close();
+    return;
+  }
   if (glide) scFloatGlide(f, best.x, best.y);
   else f.place(best.x, best.y);
 }
 
+/** A dropdown just opened: slide every open panel out from under it. */
+function scFloatClear(el) {
+  if (!betaLayoutOn()) return;
+  const m = el.getBoundingClientRect();
+  if (!m.width) return;
+  const open = [...scFloat.values()].filter((o) => !o.win && o.isOpen() && o.panel !== el);
+  for (const o of open) {
+    const b = scFloatRect(o);
+    if (!b.width || scOverlap(m, b) <= 0) continue;
+    const avoid = [m, ...open.filter((p) => p !== o).map(scFloatRect)];
+    const best = scFreeSpot(b.left, b.top, b.width, b.height, avoid);
+    if (best) scFloatGlide(o, best.x, best.y);
+    else if (!scFloatShrink(o, avoid)) o.close();
+  }
+}
+
+/** Make this panel smaller (down to its minimum) until it fits in a clear spot. */
+function scFloatShrink(f, avoid) {
+  if (!f.resize) return false;
+  const a = scFloatRect(f);
+  for (const k of [0.85, 0.7, 0.55, 0.4]) {
+    f.resize(a.width * k, a.height * k);
+    const r = f.panel.getBoundingClientRect();
+    const best = scFreeSpot(a.left, a.top, r.width, r.height, avoid);
+    if (best) { f.place(best.x, best.y); f.save(); return true; }
+  }
+  f.resize(a.width, a.height);
+  return false;
+}
+
 /**
  * No clear spot anywhere: line every open panel up side by side, in the
- * order they already sit, each as close to where it was as fits. If they're
- * too wide for the window together there's nothing to do but overlap.
+ * order they already sit, each as close to where it was as fits. False when
+ * they're too wide for the window together.
  */
 function scFloatSpread(f, { glide = true } = {}) {
   const all = [f, ...scFloatOthers(f)].map((o) => ({ o, r: scFloatRect(o) })).filter(({ r }) => r.width);
   const W = window.innerWidth, gap = 8;
-  if (all.reduce((s, p) => s + p.r.width, 0) + gap * (all.length - 1) > W - 16) return;
+  if (all.reduce((s, p) => s + p.r.width, 0) + gap * (all.length - 1) > W - 16) return false;
   all.sort((p, q) => (p.r.left + p.r.width / 2) - (q.r.left + q.r.width / 2));
   const xs = all.map((p) => p.r.left);
   for (let i = 0; i < all.length; i++) xs[i] = Math.max(xs[i], i ? xs[i - 1] + all[i - 1].r.width + gap : 8);
@@ -7568,24 +8052,234 @@ function scFloatSpread(f, { glide = true } = {}) {
     if (o === f && !glide) o.place(xs[i], r.top);
     else scFloatGlide(o, xs[i], r.top);
   });
+  return true;
 }
 
-function scFloatGlide(o, x, y) {
-  const seen = o.panel.getBoundingClientRect();
+/**
+ * A damped spring from (x, y) px off its spot, moving at (vx, vy) px/s, back to rest.
+ * One [x, y, vx, vy] per 60fps frame; capped at 1.4s.
+ */
+function scSpringRun(x, y, vx, vy) {
+  const K = 210, C = 20, sub = 4, dt = 1 / 60 / sub;
+  const out = [];
+  for (let i = 0; i < 84; i++) {
+    out.push([x, y, vx, vy]);
+    if (i > 6 && Math.abs(x) < 0.5 && Math.abs(y) < 0.5 && Math.hypot(vx, vy) < 10) break;
+    for (let s = 0; s < sub; s++) {
+      vx += (-K * x - C * vx) * dt;
+      vy += (-K * y - C * vy) * dt;
+      x += vx * dt;
+      y += vy * dt;
+    }
+  }
+  out.push([0, 0, 0, 0]);
+  return out;
+}
+
+/**
+ * Knock a panel to (x, y): it springs over, leaning into the way it's going
+ * and stretching with its speed, then settles. Re-aimed mid-flight it keeps
+ * its momentum instead of starting over.
+ */
+function scFloatGlide(o, x, y, { under = false } = {}) {
+  const p = o.panel;
+  // Starts from exactly what's on screen (mid-landing, pressed on a wall, tilted). Scaling
+  // about the center leaves the center put, so the switch of origin doesn't show.
+  const r0 = p.getBoundingClientRect();
+  const was = o.glideAnim ? null : scSettle(p);
+  scEdgeStop(o);
+  if (!o.lift) p.style.transformOrigin = '';
+  let vx = 0, vy = 0;
+  const fresh = !o.glideAnim;
+  if (o.spring && o.glideAnim) {
+    const i = Math.min(o.spring.length - 1, Math.round((performance.now() - o.springT0) / (1000 / 60)));
+    [, , vx, vy] = o.spring[i];
+  }
   o.glideAnim?.cancel();
   o.place(x, y);
-  const now = o.panel.getBoundingClientRect();
-  o.glide = { x: now.left, y: now.top };
-  const done = () => { o.glide = null; o.glideAnim = null; o.panel.classList.remove('sc-gliding'); o.save(); };
+  const r1 = p.getBoundingClientRect();
+  o.glide = { x: r1.left, y: r1.top };
+  const done = () => { o.glide = null; o.glideAnim = null; o.spring = null; p.classList.remove('sc-gliding'); o.save(); };
   if (scMotionOff()) { done(); return; }
-  o.panel.classList.add('sc-gliding');
-  const dx = seen.left - now.left, dy = seen.top - now.top;
-  const anim = o.panel.animate(
-    [{ translate: `${dx}px ${dy}px` }, { translate: '0px 0px' }],
-    { duration: Math.min(520, 300 + Math.hypot(dx, dy) * 0.35), easing: 'cubic-bezier(.22,1,.36,1)' },
-  );
+  p.classList.add('sc-gliding');
+  // Centers: they don't move when the panel is scaled or tilted.
+  const dx = (r0.left + r0.right) / 2 - (r1.left + r1.right) / 2;
+  const dy = (r0.top + r0.bottom) / 2 - (r1.top + r1.bottom) / 2;
+  const pts = scSpringRun(dx, dy, vx, vy);
+  const d0 = Math.max(1, Math.hypot(dx, dy));
+  const frames = pts.map(([px, py, pvx, pvy], i) => {
+    const speed = Math.hypot(pvx, pvy);
+    const st = Math.min(0.045, speed * 0.000022);
+    const ax = speed ? Math.abs(pvx) / speed : 0;
+    // Ducking under: shrinks back as if further away, deepest halfway across.
+    const dip = under ? 1 - 0.12 * Math.sin(Math.PI * Math.min(1, Math.max(0, 1 - Math.hypot(px, py) / d0))) : 1;
+    let sx = (1 + st * ax - st * 0.55 * (1 - ax)) * dip, sy = (1 + st * (1 - ax) - st * 0.55 * ax) * dip;
+    let rot = Math.max(-4, Math.min(4, pvx * 0.0022));
+    const m = was && i < 12 ? (1 - i / 12) ** 2 : 0;
+    if (m) { sx += (was.sx - sx) * m; sy += (was.sy - sy) * m; rot += (was.rot - rot) * m; }
+    return {
+      translate: `${px.toFixed(1)}px ${py.toFixed(1)}px`,
+      rotate: `${rot.toFixed(2)}deg`,
+      scale: `${sx.toFixed(4)} ${sy.toFixed(4)}`,
+    };
+  });
+  const anim = p.animate(frames, { duration: (pts.length - 1) * (1000 / 60), easing: 'linear' });
   o.glideAnim = anim;
+  o.spring = pts;
+  o.springT0 = performance.now();
   anim.onfinish = anim.oncancel = () => { if (o.glideAnim === anim) done(); };
+  if (fresh) {
+    p.classList.remove('sc-hit');
+    void p.offsetWidth;
+    p.classList.add('sc-hit');
+    clearTimeout(p._scHitT);
+    p._scHitT = setTimeout(() => p.classList.remove('sc-hit'), 650);
+  }
+}
+
+/**
+ * Corner resize, shared by live chat, Online, admin and Updates. The box follows the
+ * cursor exactly from where it really is (any glide or landing is stopped first, so
+ * grabbing a corner never jumps), its contents re-scale as you go, panels it grows into
+ * slide away while you drag instead of after, and the corner you hold lights up with
+ * the size riding next to it. Letting go settles it with a small spring.
+ * minH may be a function (Updates works it out from its contents).
+ */
+let scRzBadge = null;
+function scResize(e, grip, { f, panel, host = panel, minW, minH, prep, save }) {
+  if (e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  if (f) { f.glideAnim?.cancel(); scEdgeStop(f); }
+  for (const a of panel.getAnimations()) a.cancel();
+  panel.style.scale = ''; panel.style.translate = ''; panel.style.rotate = '';
+  const dir = grip.dataset.rz;
+  const east = dir.includes('e'), south = dir.includes('s');
+  const r = panel.getBoundingClientRect();
+  const sx = e.clientX, sy = e.clientY;
+  const maxW = east ? window.innerWidth - 8 - r.left : r.right - 8;
+  const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
+  const lo = () => (typeof minH === 'function' ? minH() : minH);
+  prep?.(r);
+  host.classList.add('resizing');
+  grip.classList.add('rz-on');
+  // Regenerating the glass lens every frame makes the drag stutter; it's repainted once at the end.
+  window.SolarLiquidGlass?.detach(panel);
+  if (!scRzBadge) {
+    scRzBadge = document.createElement('div');
+    scRzBadge.className = 'sc-rz-badge';
+    document.body.appendChild(scRzBadge);
+  }
+  const badge = scRzBadge;
+  badge.className = `sc-rz-badge on ${dir}`;
+  let bumpT = 0;
+  const frame = (ev) => {
+    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    const w = Math.round(Math.max(minW, Math.min(maxW, r.width + (east ? dx : -dx))));
+    panel.style.width = `${w}px`;
+    const h = Math.round(Math.max(lo(), Math.min(maxH, r.height + (south ? dy : -dy))));
+    panel.style.height = `${h}px`;
+    const left = east ? r.left : r.right - w, top = south ? r.top : r.bottom - h;
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = 'auto';
+    badge.textContent = `${w} × ${h}`;
+    badge.style.left = `${east ? left + w : left}px`;
+    badge.style.top = `${south ? top + h : top}px`;
+    const t = performance.now();
+    if (f && t - bumpT > 90) { bumpT = t; scFloatBump(f); }
+  };
+  frame(e);
+  const move = scPerFrame(frame);
+  const up = () => {
+    move.flush();
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', up);
+    host.classList.remove('resizing');
+    grip.classList.remove('rz-on');
+    badge.classList.remove('on');
+    panel._scZoom?.();
+    window.SolarLiquidGlass?.attach(panel);
+    save?.();
+    if (f) { scFloatBump(f, { force: true }); scFloatFit(f); }
+    if (!scMotionOff() && !f?.glideAnim) {
+      panel.animate([{ scale: '1' }, { scale: '1.012', offset: 0.35 }, { scale: '0.997', offset: 0.7 }, { scale: '1' }],
+        { id: 'sc-motion', duration: 380, easing: 'cubic-bezier(.3,.7,.3,1)' });
+    }
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+}
+
+const SC_LIFT = 1.035;
+/**
+ * What the panel is showing right now (scale and tilt, mid-animation included), then
+ * its own lift and landing animations are stopped so whatever comes next starts from there.
+ */
+function scSettle(p) {
+  const cs = getComputedStyle(p);
+  const sc = cs.scale === 'none' ? [1, 1] : cs.scale.split(' ').map(Number);
+  const was = { sx: sc[0] || 1, sy: sc[1] ?? sc[0] ?? 1, rot: cs.rotate === 'none' ? 0 : parseFloat(cs.rotate) || 0 };
+  for (const a of p.getAnimations()) if (a.id === 'sc-motion') a.cancel();
+  return was;
+}
+
+/** Beta: a picked-up panel lifts toward you and leans into the way you drag it. */
+function scLift(f, ev) {
+  if (scMotionOff()) return;
+  const p = f.panel;
+  const now = performance.now();
+  const l = f.lift;
+  if (!l) {
+    clearTimeout(p._scLiftT);
+    // .dragging already says lifted; what was on screen is the landing it interrupts, or rest.
+    const landing = p.getAnimations().some((a) => a.id === 'sc-motion');
+    const was = scSettle(p);
+    const from = landing ? `${was.sx} ${was.sy}` : '1';
+    const r = p.getBoundingClientRect();
+    const k = p.offsetWidth ? r.width / p.offsetWidth : 1;
+    p.style.transformOrigin = `${Math.round((ev.clientX - r.left) / k)}px ${Math.round((ev.clientY - r.top) / k)}px`;
+    // Grabbed again while it's still easing off a wall: that ease now ends held, not at rest.
+    if (f.press?.release) { f.press.gx = f.press.gy = SC_LIFT; scEdgeRun(f); }
+    else if (!f.press) p.animate([{ scale: from }, { scale: '1.06', offset: 0.42 }, { scale: String(SC_LIFT) }], { id: 'sc-motion', duration: 380, easing: 'cubic-bezier(.3,.7,.3,1)' });
+    const lf = f.lift = { x: ev.clientX, t: now, v: 0, tilt: was.rot, raf: 0 };
+    const tick = () => {
+      if (f.lift !== lf) return;
+      lf.v *= 0.86;
+      // Pressed against an edge it can't lean: it's flat on the wall.
+      const want = f.edge ? 0 : Math.max(-5, Math.min(5, lf.v * 0.005));
+      lf.tilt += (want - lf.tilt) * 0.22;
+      p.style.rotate = `${lf.tilt.toFixed(2)}deg`;
+      lf.raf = requestAnimationFrame(tick);
+    };
+    lf.raf = requestAnimationFrame(tick);
+    return;
+  }
+  const v = ((ev.clientX - l.x) / Math.max(8, now - l.t)) * 1000;
+  l.v = l.v * 0.4 + v * 0.6;
+  l.x = ev.clientX;
+  l.t = now;
+}
+
+/** Let go: the tilt swings back past level and the panel lands with a little squash. */
+function scLiftEnd(f, { quiet = false } = {}) {
+  const l = f.lift;
+  if (!l) return;
+  f.lift = null;
+  cancelAnimationFrame(l.raf);
+  const p = f.panel;
+  // Still popping up (a quick grab and let go): land from where that got to.
+  const popping = p.getAnimations().some((a) => a.id === 'sc-motion');
+  const was = scSettle(p);
+  p.style.rotate = '';
+  const clear = () => { if (!f.lift && !f.press) p.style.transformOrigin = ''; };
+  if (quiet || scMotionOff()) { clear(); return; }
+  p.animate([{ rotate: `${l.tilt}deg` }, { rotate: `${(-l.tilt * 0.35).toFixed(2)}deg`, offset: 0.45 }, { rotate: '0deg' }], { id: 'sc-motion', duration: 520, easing: 'cubic-bezier(.3,.7,.3,1)' });
+  // Pressed on a wall, the press spring lands it instead.
+  if (!f.press) {
+    const from = popping ? `${was.sx} ${was.sy}` : String(SC_LIFT);
+    p.animate([{ scale: from }, { scale: '0.975', offset: 0.38 }, { scale: '1.01', offset: 0.7 }, { scale: '1' }], { id: 'sc-motion', duration: 560, easing: 'cubic-bezier(.3,.7,.3,1)' });
+  }
+  p._scLiftT = setTimeout(clear, 600);
 }
 
 let scEdgeEl = null;
@@ -7593,7 +8287,10 @@ let scEdgeEl = null;
 function scFloatDrag(f, ev, want) {
   if (!f || !betaLayoutOn()) return;
   f.glideAnim?.cancel();
-  scFloatBump(f);
+  scLift(f, ev);
+  // Others glide with momentum, so re-aiming them a dozen times a second is plenty; each check costs a layout.
+  const t = performance.now();
+  if (t - (f.bumpT || 0) > 70) { f.bumpT = t; scFloatBump(f); }
   if (f.noPop) return;
   const W = window.innerWidth, H = window.innerHeight;
   let side = null, push = 0;
@@ -7604,41 +8301,126 @@ function scFloatDrag(f, ev, want) {
   if (!scEdgeEl) {
     scEdgeEl = document.createElement('div');
     scEdgeEl.className = 'sc-edge';
-    scEdgeEl.innerHTML = '<span>Let go to pop out</span>';
+    scEdgeEl.innerHTML = '<i class="sc-edge-glow"></i><span class="sc-edge-tag"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg><b></b><em></em></span>';
     document.body.appendChild(scEdgeEl);
   }
   const k = Math.min(1, push / 110);
-  const armed = k >= 1;
+  // Once armed it stays armed until you clearly back off, so wobbling on the line can't flicker it.
+  const armed = k >= 1 || (f.edge?.armed && f.edge.side === side && k > 0.8);
   scEdgeEl.className = `sc-edge on ${side}${armed ? ' armed' : ''}`;
+  const label = armed ? 'Let go to pop out' : 'Keep pushing';
+  const b = scEdgeEl.querySelector('b');
+  if (b.textContent !== label) b.textContent = label;
   scEdgeEl.style.setProperty('--k', k.toFixed(3));
-  scEdgeEl.style.setProperty('--cx', `${ev.clientX}px`);
-  scEdgeEl.style.setProperty('--cy', `${ev.clientY}px`);
-  // Rubber band: the panel leans over the edge the harder you push.
-  const lean = scMotionOff() ? 0 : Math.round(Math.min(push, 180) * 0.2);
-  f.panel.style.translate = side === 'right' ? `${lean}px 0px` : side === 'left' ? `${-lean}px 0px` : `0px ${lean}px`;
-  f.panel.classList.toggle('sc-edge-armed', armed);
+  // The tag follows the cursor along the edge but never past the title bar or out of the window.
+  scEdgeEl.style.setProperty('--cx', `${Math.round(Math.max(140, Math.min(W - 140, ev.clientX)))}px`);
+  scEdgeEl.style.setProperty('--cy', `${Math.round(Math.max(72, Math.min(H - 36, ev.clientY)))}px`);
+  f.panel.style.setProperty('--edge-k', (armed ? 1 : k).toFixed(3));
   f.edge = { side, armed };
+  scEdgePress(f, side, k, armed);
+  f.panel.classList.toggle('sc-edge-armed', armed);
 }
 
-function scEdgeHide(f) {
+/**
+ * Pushed into the edge of the launcher: the panel presses flat against it, firmer the
+ * harder you push, and never crosses it. Once it's far enough it lets go of the squash
+ * and shrinks back off the edge, ready to come away as its own window.
+ * One spring drives all of it, pressing in, easing off and landing, so touching the
+ * edge again halfway through just turns it around.
+ */
+function scEdgePress(f, side, k, armed) {
+  if (scMotionOff()) return;
+  const e = 1 - (1 - k) ** 2;
+  const along = armed ? 0.93 : 1 - 0.1 * e;
+  const across = armed ? 0.93 : 1 + 0.03 * e;
+  let s = f.press;
+  if (!s) {
+    const p = f.panel;
+    const was = scSettle(p);
+    // Sized once: measuring every move is what made the press stutter.
+    s = f.press = { sx: was.sx, sy: was.sy, vx: 0, vy: 0, pin: 0, vp: 0, w: p.offsetWidth || 1, h: p.offsetHeight || 1, raf: 0, t: 0 };
+    p.classList.add('sc-edging');
+  }
+  s.side = side;
+  s.armed = armed;
+  s.release = false;
+  s.pinTo = 1;
+  s.gx = SC_LIFT * (side === 'bottom' ? across : along);
+  s.gy = SC_LIFT * (side === 'bottom' ? along : across);
+  scEdgeRun(f);
+}
+
+function scEdgeRun(f) {
+  const s = f.press, p = f.panel;
+  if (!s || s.raf) return;
+  s.t = performance.now();
+  const tick = (now) => {
+    if (f.press !== s) return;
+    const dt = Math.min(0.05, (now - s.t) / 1000);
+    s.t = now;
+    // Follows the push like a soft spring; snaps in with a small bounce once it arms.
+    const K = s.armed ? 420 : 560, C = s.armed ? 24 : 40;
+    for (let i = 0, n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n; i < n; i++) {
+      s.vx += (K * (s.gx - s.sx) - C * s.vx) * h; s.sx += s.vx * h;
+      s.vy += (K * (s.gy - s.sy) - C * s.vy) * h; s.sy += s.vy * h;
+      s.vp += (560 * (s.pinTo - s.pin) - 47 * s.vp) * h; s.pin += s.vp * h;
+    }
+    const still = Math.abs(s.gx - s.sx) + Math.abs(s.gy - s.sy) < 2e-4 && Math.abs(s.vx) + Math.abs(s.vy) < 2e-3
+      && Math.abs(s.pinTo - s.pin) < 1e-3 && Math.abs(s.vp) < 1e-2;
+    if (still && s.release) {
+      f.press = null;
+      p.style.scale = '';
+      p.style.translate = '';
+      p.classList.remove('sc-edging');
+      if (!f.lift) p.style.transformOrigin = '';
+      return;
+    }
+    // Scale runs about the grab point; slide back by what that moves the pressed side so it stays on the edge.
+    const o = (p.style.transformOrigin || '').split(' ').map(parseFloat);
+    const ox = Number.isFinite(o[0]) ? o[0] : s.w / 2, oy = Number.isFinite(o[1]) ? o[1] : s.h / 2;
+    const tx = (s.side === 'right' ? (s.w - ox) * (1 - s.sx) : s.side === 'left' ? -ox * (1 - s.sx) : 0) * s.pin;
+    const ty = (s.side === 'bottom' ? (s.h - oy) * (1 - s.sy) : 0) * s.pin;
+    p.style.scale = `${s.sx.toFixed(4)} ${s.sy.toFixed(4)}`;
+    p.style.translate = `${tx.toFixed(1)}px ${ty.toFixed(1)}px`;
+    s.raf = still ? 0 : requestAnimationFrame(tick);
+  };
+  s.raf = requestAnimationFrame(tick);
+}
+
+/** Drops the press without easing it out (something else is taking over the panel). */
+function scEdgeStop(f) {
+  if (!f?.press) return;
+  cancelAnimationFrame(f.press.raf);
+  f.press = null;
+  f.panel.style.scale = '';
+  f.panel.style.translate = '';
+  f.panel.classList.remove('sc-edging');
+}
+
+/** drop: the drag ended here, so it settles to rest instead of back to held. */
+function scEdgeHide(f, { drop = false } = {}) {
   scEdgeEl?.classList.remove('on', 'armed');
   if (!f) return;
   f.edge = null;
   f.panel.classList.remove('sc-edge-armed');
-  const was = f.panel.style.translate;
-  f.panel.style.translate = '';
-  if (was && was !== '0px 0px' && !scMotionOff()) {
-    f.panel.animate([{ translate: was }, { translate: '0px 0px' }], { duration: 420, easing: SC_SPRING });
-  }
+  f.panel.style.removeProperty('--edge-k');
+  const s = f.press;
+  if (!s) return;
+  if (scMotionOff()) { scEdgeStop(f); return; }
+  s.armed = false;
+  s.release = true;
+  s.pinTo = 0;
+  s.gx = s.gy = drop ? 1 : SC_LIFT;
+  scEdgeRun(f);
 }
 
 /** End of a header drag; true when it popped out. */
 function scFloatDrop(f, ev, grab) {
   if (!f) return false;
   const edge = f.edge;
+  scLiftEnd(f, { quiet: !!edge?.armed });
   if (!edge?.armed) {
-    if (!scMotionOff()) f.panel.animate([{ scale: '1.02' }, { scale: '0.995', offset: 0.55 }, { scale: '1' }], { duration: 360, easing: 'cubic-bezier(.3,.7,.3,1)' });
-    if (!f.noPop) scEdgeHide(f);
+    if (!f.noPop) scEdgeHide(f, { drop: true });
     scFloatBump(f, { force: true });
     // Whatever couldn't make room, this one moves off it instead: panels never stack.
     scFloatFit(f);
@@ -7652,7 +8434,8 @@ function scFloatDrop(f, ev, grab) {
 // Popped out: grab anywhere that isn't a control to move the window; the edges and corners resize it.
 const SC_POP_NOGRAB = `button, a, input, textarea, select, label, [contenteditable], [role="button"], [role="slider"], [role="tab"], video, ${SC_FLOATERS}, .pf-overlay, .sync-modal`;
 function scPopGrab(d, key) {
-  for (const edge of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) {
+  // No top-right grip: that's where the X is.
+  for (const edge of ['n', 's', 'e', 'w', 'nw', 'sw', 'se']) {
     const g = d.createElement('div');
     g.className = `sc-pop-rz ${edge}`;
     g.dataset.popRz = edge;
@@ -7672,7 +8455,6 @@ function scPopGrab(d, key) {
     let on = false;
     const begin = () => {
       on = true;
-      // Text re-zooms once on release, not every frame of the resize.
       if (rz) host.classList.add('resizing');
       try { t.setPointerCapture(id); } catch { /* gone */ }
       d.getSelection()?.removeAllRanges();
@@ -7690,10 +8472,7 @@ function scPopGrab(d, key) {
       on = false;
       d.documentElement.classList.remove('sc-grabbing', 'sc-grab-move');
       window.nebula.popoutRelease?.();
-      if (rz) {
-        host.classList.remove('resizing');
-        setTimeout(() => scFloat.get(key)?.panel._scZoom?.(), 30);
-      }
+      if (rz) host.classList.remove('resizing');
       // The press that moved the window isn't also a click on whatever it started on.
       const eat = (ce) => { ce.stopPropagation(); ce.preventDefault(); };
       d.addEventListener('click', eat, { capture: true, once: true });
@@ -7721,7 +8500,7 @@ function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
     else { x = ev.screenX - (grab?.x || w / 2); y = window.screenY + window.outerHeight + 10; }
   }
   const win = window.open('', `sc-pop-${key}`, `popup=yes,width=${w},height=${h},left=${Math.round(x)},top=${Math.round(y)}`);
-  if (!win?.document) { showToast("Couldn't pop out", 'The window could not be opened.', 'error'); scEdgeHide(f); return; }
+  if (!win?.document) { showToast("Couldn't pop out", 'The window could not be opened.', 'error'); scEdgeHide(f, { drop: true }); return; }
   const d = win.document;
   d.open();
   d.write(`<!doctype html><html><head><meta charset="utf-8"><base href="${escapeHtml(location.href)}"><title>${escapeHtml(f.title)} · SolarClient</title><link rel="stylesheet" href="style.css"></head><body><div id="toast-container" class="toast-container"></div></body></html>`);
@@ -7738,7 +8517,11 @@ function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
     scEdgeHide(null);
     f.panel.getAnimations().forEach((a) => a.cancel());
     f.panel.style.translate = '';
-    f.panel.classList.remove('sc-edge-armed', 'sc-pop', 'sc-pop-out', 'dragging', 'resizing');
+    f.panel.style.scale = '';
+    f.panel.style.rotate = '';
+    f.panel.style.transformOrigin = '';
+    f.panel.classList.remove('sc-edge-armed', 'sc-edging', 'sc-slot', 'sc-pop', 'sc-pop-out', 'dragging', 'resizing');
+    f.panel.style.removeProperty('--edge-k');
     window.SolarLiquidGlass?.detach(f.panel);
     f.home = { parent: f.host.parentNode, next: f.host.nextSibling };
     const look = () => {
@@ -7784,15 +8567,34 @@ function scPopOut(key, { side = 'right', ev = null, grab = null } = {}) {
   scPopGrab(d, key);
   scDotTips(d);
 
+  // The press stops where it is; the slot below starts from that shape.
+  if (f.press) { cancelAnimationFrame(f.press.raf); f.press = null; }
   if (scMotionOff()) { move(); return; }
-  const cur = f.panel.style.translate || '0px 0px';
-  f.panel.animate([
-    { translate: cur, transform: 'none', opacity: 1 },
-    { translate: `${-dx * 12}px ${-dy * 12}px`, transform: dx ? 'scale(0.92, 1.05)' : 'scale(1.05, 0.92)', opacity: 1, offset: 0.28 },
-    { translate: `${dx * 40}px ${dy * 40}px`, transform: 'scale(1.03)', opacity: 1, offset: 0.55 },
-    { translate: `${dx * 115}% ${dy * 115}%`, transform: 'scale(0.9)', opacity: 0 },
-  ], { duration: 380, easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' });
-  setTimeout(move, 360);
+  // Out through the edge like through a slot: it squeezes flat against it and is gone,
+  // never hanging half over it. Starts from exactly where it is (pressed, shrunk, tilted).
+  const p = f.panel;
+  const L = { x: p.offsetLeft, y: p.offsetTop, w: p.offsetWidth || 1, h: p.offsetHeight || 1 };
+  const v = p.getBoundingClientRect();
+  p.getAnimations().forEach((a) => a.cancel());
+  p.style.scale = '1';
+  p.style.translate = '0px 0px';
+  p.style.rotate = '0deg';
+  p.style.transformOrigin = side === 'left' ? '0% 50%' : side === 'bottom' ? '50% 100%' : '100% 50%';
+  const tx = side === 'left' ? v.left - L.x : side === 'bottom' ? (v.left + v.width / 2) - (L.x + L.w / 2) : v.right - (L.x + L.w);
+  const ty = side === 'bottom' ? v.bottom - (L.y + L.h) : (v.top + v.height / 2) - (L.y + L.h / 2);
+  const from = `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${(v.width / L.w).toFixed(4)}, ${(v.height / L.h).toFixed(4)})`;
+  // A small lean back off the wall, then it's drawn through, gathering speed.
+  const back = `translate(${-dx * 7}px, ${-dy * 7}px) scale(0.965)`;
+  const thin = dy ? 'scale(0.9, 0.45)' : 'scale(0.45, 0.9)';
+  const flat = dy ? 'scale(0.8, 0.02)' : 'scale(0.02, 0.8)';
+  p.classList.add('sc-slot');
+  p.animate([
+    { transform: from, easing: 'cubic-bezier(.25,.6,.35,1)' },
+    { transform: back, offset: 0.34, easing: 'cubic-bezier(.55,0,.8,.45)' },
+    { transform: thin, offset: 0.72, easing: 'cubic-bezier(.4,0,1,1)' },
+    { transform: flat },
+  ], { duration: 420, fill: 'forwards' });
+  setTimeout(move, 410);
 }
 
 /**
@@ -7836,14 +8638,30 @@ function scDock(key, { at = null, gone = false, shut = false } = {}) {
   scFloatFit(f, { glide: false });
   f.save();
   if (!scMotionOff()) {
-    f.panel.animate([
-      { transform: 'scale(0.86)', opacity: 0, boxShadow: '0 0 0 3px #fff, 0 0 70px rgba(255,255,255,0.7)' },
-      { transform: 'scale(1.035)', opacity: 1, boxShadow: '0 0 0 2px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.35)', offset: 0.55 },
-      { transform: 'scale(0.995)', opacity: 1, offset: 0.8 },
-      { transform: 'none', opacity: 1 },
-    ], { duration: 520, easing: 'cubic-bezier(.2,.9,.25,1)' });
+    window.SolarLiquidGlass?.paintNow?.(f.panel);
+    scDockLand(f.panel, at);
   }
   window.focus();
+}
+
+/** The landing: the panel springs out of the spot you let go, a white ring rolls off its edges and a shine crosses it. */
+function scDockLand(panel, at) {
+  const r = panel.getBoundingClientRect();
+  const ox = at ? Math.max(0, Math.min(r.width, at.x - r.left)) : r.width / 2;
+  const oy = at ? Math.max(0, Math.min(r.height, at.y - r.top)) : r.height / 2;
+  const radius = getComputedStyle(panel).borderRadius || '16px';
+  panel.animate([
+    { transformOrigin: `${ox}px ${oy}px`, transform: 'scale(0.55)', opacity: 0, boxShadow: '0 0 0 3px #fff, 0 0 50px rgba(255,255,255,0.55)', easing: 'cubic-bezier(.2,1.1,.35,1)' },
+    { transformOrigin: `${ox}px ${oy}px`, transform: 'scale(1.03)', opacity: 1, boxShadow: '0 0 0 2px rgba(255,255,255,0.8), 0 0 30px rgba(255,255,255,0.3)', offset: 0.5, easing: 'ease-in-out' },
+    { transformOrigin: `${ox}px ${oy}px`, transform: 'scale(0.992)', boxShadow: '0 0 0 1px rgba(255,255,255,0.3), 0 0 12px rgba(255,255,255,0.1)', offset: 0.76, easing: 'ease-out' },
+    { transformOrigin: `${ox}px ${oy}px`, transform: 'none', opacity: 1 },
+  ], { duration: 620, id: 'sc-motion' });
+  const fx = document.createElement('div');
+  fx.className = 'sc-dock-land';
+  fx.style.cssText = `left:${r.left}px; top:${r.top}px; width:${r.width}px; height:${r.height}px; border-radius:${radius}; --ox:${ox}px; --oy:${oy}px;`;
+  fx.innerHTML = '<i class="ring"></i><i class="ring two"></i><span class="clip"><i class="shine"></i></span>';
+  document.body.appendChild(fx);
+  setTimeout(() => fx.remove(), 900);
 }
 
 let scDockHintEl = null;
@@ -8305,39 +9123,7 @@ for (const id of SC_FOLLOW_IDS) {
     window.addEventListener('mouseup', up);
   });
   panel.querySelectorAll('.mod-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); e.stopPropagation();
-    const dir = grip.dataset.rz;
-    const east = dir.includes('e'), south = dir.includes('s');
-    const r = panel.getBoundingClientRect();
-    const sx = e.clientX, sy = e.clientY;
-    const maxW = east ? window.innerWidth - 8 - r.left : r.right - 8;
-    const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
-    modal.classList.add('resizing');
-    // Rebuilding the glass lens every frame makes the drag stutter; repaint once at the end.
-    window.SolarLiquidGlass?.detach(panel);
-    const move = scPerFrame((ev) => {
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
-      const w = Math.max(MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
-      const h = Math.max(MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
-      Object.assign(panel.style, {
-        width: `${w}px`, height: `${h}px`,
-        left: `${east ? r.left : r.right - w}px`, top: `${south ? r.top : r.bottom - h}px`,
-      });
-    });
-    const up = () => {
-      move.flush();
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-      modal.classList.remove('resizing');
-      panel._scZoom?.();
-      window.SolarLiquidGlass?.attach(panel);
-      saveBox();
-      scFloatBump(modFloat, { force: true });
-      scFloatFit(modFloat);
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    scResize(e, grip, { f: modFloat, panel, host: modal, minW: MIN_W, minH: MIN_H, save: saveBox });
   }));
   window.addEventListener('resize', () => { if (isOpen() && !modFloat.win) placeBox(boxNow()); });
   scPanelScale(panel, 460);
@@ -8705,7 +9491,7 @@ let oiOffline = 0;
 let oiHiddenAsk = false;
 // Hovering a presence dot (online chip, online list, community members) says
 // what it means. Pop-out windows get their own copy via scDotTips(doc).
-const SC_DOT_TIP = '.oi-dot[data-tip], .op-dot[data-tip], .cs-person-dot[data-tip]';
+const SC_DOT_TIP = '.oi-dot[data-tip], .op-dot[data-tip], .cs-person-dot[data-tip], .cs-mem-on[data-tip]';
 function scDotTips(doc) {
   const win = doc.defaultView;
   let tip = null, on = null, titled = null;
@@ -8734,7 +9520,7 @@ function scDotTips(doc) {
     tip.style.setProperty('--dot', win.getComputedStyle(mark).backgroundColor);
     titled = dot.parentElement?.closest('[title]') || null;
     if (titled && titled.dataset.title == null) { titled.dataset.title = titled.title; titled.title = ''; }
-    const r = mark.getBoundingClientRect();
+    const r = scRect(mark);
     const below = r.bottom + 40 < win.innerHeight;
     tip.classList.toggle('above', !below);
     tip.style.left = `${Math.round(r.left + r.width / 2)}px`;
@@ -8879,6 +9665,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     pop.style.right = 'auto';
   }
 
+  scPanelScale(pop, 400);
   const opFloat = scFloatAdd('online', {
     panel: pop, host: pop, chip, closeBtn: document.getElementById('online-pop-close'), btnClass: 'sc-hbtn',
     title: 'SolarClient Online', isOpen: () => !pop.classList.contains('hidden'),
@@ -8912,39 +9699,10 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     place();
   });
   pop.querySelectorAll('.op-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); e.stopPropagation();
-    const dir = grip.dataset.rz;
-    const east = dir.includes('e'), south = dir.includes('s');
-    const r = pop.getBoundingClientRect();
-    const sx = e.clientX, sy = e.clientY;
-    const maxW = east ? window.innerWidth - 8 - r.left : r.right - 8;
-    const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
-    pop.classList.add('resizing');
-    window.SolarLiquidGlass?.detach(pop);
-    const move = scPerFrame((ev) => {
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
-      const w = Math.max(OP_MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
-      const h = Math.max(OP_MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
-      pop.style.width = `${w}px`;
-      pop.style.height = `${h}px`;
-      pop.style.maxHeight = 'none';
-      pop.style.left = `${east ? r.left : r.right - w}px`;
-      pop.style.top = `${south ? r.top : r.bottom - h}px`;
-      pop.style.right = 'auto';
+    scResize(e, grip, {
+      f: opFloat, panel: pop, minW: OP_MIN_W, minH: OP_MIN_H, save: saveBox,
+      prep: () => { pop.style.maxHeight = 'none'; },
     });
-    const up = () => {
-      move.flush();
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-      pop.classList.remove('resizing');
-      window.SolarLiquidGlass?.attach(pop);
-      saveBox();
-      scFloatBump(opFloat, { force: true });
-      scFloatFit(opFloat);
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
   }));
 
   function render() {
@@ -8997,7 +9755,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
       });
       row.querySelector('[data-act="menu"]')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        const r = e.currentTarget.getBoundingClientRect();
+        const r = scRect(e.currentTarget);
         showPeopleMenu(p, r.left, r.bottom + 4);
       });
       list.appendChild(row);
@@ -9106,7 +9864,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     const act = btn.dataset.act;
     if (act === 'profile') openProfile({ uuid: p.uuid, name: p.name });
     else if (act === 'dm') { close(); switchView('friends'); openConversation({ kind: 'dm', id: p.uuid, name: p.name }); }
-    else if (act === 'menu') { const r = btn.getBoundingClientRect(); showPeopleMenu(p, r.left, r.bottom + 4); }
+    else if (act === 'menu') { const r = scRect(btn); showPeopleMenu(p, r.left, r.bottom + 4); }
     else if (act === 'follow') {
       try {
         await window.nebula.friendsFollow({ uuid: p.uuid, name: p.name });
@@ -9202,11 +9960,7 @@ setTimeout(() => refreshOnlineIndicator(), 800);
     }
   });
   list.addEventListener('error', (e) => { if (e.target.matches?.('.op-face')) e.target.style.visibility = 'hidden'; }, true);
-  document.addEventListener('mousedown', (e) => {
-    if (!isOpen() || opFloat.win || pop.contains(e.target) || chip.contains(e.target) || e.target.closest('.people-menu, .confirm-modal, .modal-scrim, .sc-menu')) return;
-    if (betaLayoutOn() && e.target.closest('#ingame-indicator, #live-chat, #mod-modal .mod-panel')) return;
-    close();
-  });
+  // Clicking elsewhere leaves it open; it closes from its X (or the online button).
   window.addEventListener('resize', () => { if (isOpen() && !opFloat.win) { place(); moveInk(); } });
 })();
 
@@ -11439,7 +12193,16 @@ let frTab = 'friends';
 let frConversation = null;   // { kind: 'dm'|'group', id }
 let frReplyTo = null;        // { id, name, text }
 let frEditing = null;        // { id, text }
+let frRendered = { key: null, sig: null, ids: new Set() };
 const FR_DOTS_SVG = '<svg viewBox="0 0 16 4" width="14" height="4" aria-hidden="true"><circle cx="2" cy="2" r="1.6"/><circle cx="8" cy="2" r="1.6"/><circle cx="14" cy="2" r="1.6"/></svg>';
+const FR_ICONS = {
+  call: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.12.37 2.33.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>',
+  server: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0 10h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm3-7a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm0 10a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm4-10v2h7V6zm0 10v2h7v-2z"/></svg>',
+  members: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7.5 0a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM9 13c-3.3 0-7 1.6-7 4.5V20h14v-2.5C16 14.6 12.3 13 9 13zm7.5 0c-.5 0-1 .03-1.5.1 1.3.95 2 2.25 2 3.9V20h5v-2.3c0-2.6-3-4.7-5.5-4.7z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm3 5v2h10V9zm0 4v2h7v-2z"/></svg>',
+};
+const FR_EMOJI = ['😀', '😂', '🤣', '😊', '😍', '😎', '🤔', '😅', '😭', '😡', '👍', '👎', '👏', '🙏', '🔥', '💯',
+  '❤️', '💜', '✨', '🎉', '👀', '💀', '🤝', '⛏️', '🗡️', '🛡️', '💎', '🧱', '🌙', '⭐', '☄️', '🚀'];
 
 function frStatusLabel(p) {
   if (p.status === 'in_game') {
@@ -11665,35 +12428,61 @@ function renderFriendsView() {
 
   // ---- people list ----
   const list = document.getElementById('fr-list');
-  const people = frTab === 'friends' ? s.friends
+  const query = (document.getElementById('fr-search')?.value || '').trim().toLowerCase();
+  const all = frTab === 'friends' ? s.friends
     : frTab === 'following' ? s.following
     : frTab === 'followers' ? s.followers
     : s.blocked;
+  const lastAt = (p) => frLastMessage('dm', p.uuid)?.at || 0;
+  const people = all
+    .filter(p => !query || String(p.name || '').toLowerCase().includes(query))
+    .sort((a, b) => frIsOn(b) - frIsOn(a) || (b.unread || 0) - (a.unread || 0)
+      || lastAt(b) - lastAt(a) || String(a.name).localeCompare(String(b.name)));
   list.innerHTML = '';
   if (!people.length) {
     list.innerHTML = `<p class="dim fr-empty">${
-      frTab === 'friends' ? 'Nobody yet. Follow someone, and once they follow back they show up here.'
+      query ? `Nobody here matches \u201c${escapeHtml(query)}\u201d. Press Follow to add them by username.`
+      : frTab === 'friends' ? 'Nobody yet. Follow someone, and once they follow back they show up here.'
       : frTab === 'blocked' ? 'Nobody blocked.'
       : frTab === 'following' ? "You aren't following anyone yet."
       : 'No followers yet.'}</p>`;
   }
+  let section = null;
   for (const p of people) {
+    const on = frTab !== 'blocked' && frIsOn(p);
+    const sec = frTab === 'blocked' ? 'Blocked' : on ? 'Online' : 'Offline';
+    if (sec !== section) {
+      section = sec;
+      const n = people.filter(x => (frTab === 'blocked' ? 'Blocked' : frIsOn(x) ? 'Online' : 'Offline') === sec).length;
+      const h = document.createElement('div');
+      h.className = `fr-sec${sec === 'Online' ? ' on' : sec === 'Blocked' ? ' blocked' : ''}`;
+      h.innerHTML = `<span>${sec}</span><b>${n}</b>`;
+      list.appendChild(h);
+    }
+    const last = frLastMessage('dm', p.uuid);
+    const st = p.status || 'offline';
+    const sub = st === 'in_game' || !last ? frStatusLabel(p) : frPreview(last, 'dm');
     const row = document.createElement('div');
-    row.className = `fr-person ${p.status || 'offline'}` + (frConversation?.id === p.uuid ? ' active' : '');
+    row.className = `fr-person ${st}` + (frConversation?.id === p.uuid ? ' active' : '')
+      + (p.unread ? ' has-unread' : '') + (p.blocked ? ' is-blocked' : '');
     row.innerHTML = `
       <div class="fr-face-wrap" ${personAttr(p.uuid, p.name)} title="View profile">
         <img class="fr-face" src="${frAvatar(p.uuid)}" alt="">
-        <span class="fr-presence ${p.status || 'offline'}"></span>
+        <span class="fr-presence ${st}"></span>
       </div>
       <div class="fr-person-text">
-        <div class="fr-name">${escapeHtml(p.name)}${reportFlag(p.uuid, p.name)}${p.unread ? `<span class="fr-unread">${p.unread}</span>` : ''}</div>
-        <div class="fr-sub">${escapeHtml(frStatusLabel(p))}</div>
+        <div class="fr-name"><span class="fr-name-txt">${escapeHtml(p.name)}</span>${reportFlag(p.uuid, p.name)}</div>
+        <div class="fr-sub ${st === 'in_game' ? 'playing' : ''}">${escapeHtml(sub)}</div>
       </div>
-      <button class="fr-more" title="Options">⋯</button>
+      <div class="fr-side">
+        ${last ? `<span class="fr-when">${frAgo(last.at)}</span>` : ''}
+        ${p.unread ? `<span class="fr-unread">${p.unread > 99 ? '99+' : p.unread}</span>` : ''}
+      </div>
+      <button class="fr-more" title="Options" aria-label="Options">${FR_DOTS_SVG}</button>
     `;
     row.querySelector('.fr-face').onerror = (e) => { e.target.style.visibility = 'hidden'; };
     row.addEventListener('click', (e) => {
-      if (e.target.classList.contains('fr-more')) return;
+      if (e.target.closest('.fr-more, .rflag')) return;
       if (p.blocked) return;
       openConversation({ kind: 'dm', id: p.uuid, name: p.name });
     });
@@ -11707,19 +12496,28 @@ function renderFriendsView() {
   // ---- groups ----
   const groups = document.getElementById('fr-groups');
   groups.innerHTML = '';
-  if (!s.groups.length) {
-    groups.innerHTML = '<p class="dim fr-empty">No group chats yet.</p>';
+  const shownGroups = s.groups
+    .filter(g => !query || String(g.name || '').toLowerCase().includes(query))
+    .sort((a, b) => (frLastMessage('group', b.id)?.at || 0) - (frLastMessage('group', a.id)?.at || 0));
+  if (!shownGroups.length) {
+    groups.innerHTML = `<p class="dim fr-empty">${query ? 'No group chats match.' : 'No group chats yet.'}</p>`;
   }
-  for (const g of s.groups) {
+  for (const g of shownGroups) {
+    const last = frLastMessage('group', g.id);
     const row = document.createElement('div');
-    row.className = 'fr-person fr-group' + (frConversation?.id === g.id ? ' active' : '');
+    row.className = 'fr-person fr-group' + (frConversation?.id === g.id ? ' active' : '') + (g.unread ? ' has-unread' : '');
     row.innerHTML = `
       <div class="fr-group-icon">${g.icon
         ? `<img src="${groupIconSrc(g.icon)}" alt="">`
         : escapeHtml(g.name.slice(0, 2).toUpperCase())}</div>
       <div class="fr-person-text">
-        <div class="fr-name">${escapeHtml(g.name)}${g.unread ? `<span class="fr-unread">${g.unread}</span>` : ''}</div>
-        <div class="fr-sub">${g.members.length} member${g.members.length === 1 ? '' : 's'}${g.isOwner ? ' · you own this' : ''}</div>
+        <div class="fr-name"><span class="fr-name-txt">${escapeHtml(g.name)}</span></div>
+        <div class="fr-sub">${last ? escapeHtml(frPreview(last, 'group'))
+          : `${g.members.length} member${g.members.length === 1 ? '' : 's'}${g.isOwner ? ' · you own this' : ''}`}</div>
+      </div>
+      <div class="fr-side">
+        ${last ? `<span class="fr-when">${frAgo(last.at)}</span>` : ''}
+        ${g.unread ? `<span class="fr-unread">${g.unread > 99 ? '99+' : g.unread}</span>` : ''}
       </div>
     `;
     row.addEventListener('click', () => openConversation({ kind: 'group', id: g.id, name: g.name }));
@@ -11728,6 +12526,64 @@ function renderFriendsView() {
 
   renderConversation();
   renderInvites();
+  frTabInk();
+}
+
+function frIsOn(p) { return p?.status === 'online' || p?.status === 'in_game' ? 1 : 0; }
+
+function frLastMessage(kind, id) {
+  const s = friendsState;
+  const msgs = kind === 'dm' ? (s?.dms?.[id] || []) : (s?.groups?.find(g => g.id === id)?.messages || []);
+  return msgs[msgs.length - 1] || null;
+}
+
+function frPreview(m, kind) {
+  const s = friendsState;
+  const mine = m.mine || m.from === s?.self?.id;
+  const body = m.invite
+    ? (m.invite.kind === 'world' ? 'Sent a world invite' : 'Sent a server invite')
+    : String(m.text || '').replace(/\s+/g, ' ');
+  const who = mine ? 'You' : kind === 'group' ? (m.name || s?.people?.[m.from]?.name || '') : '';
+  return who ? `${who}: ${body}` : body;
+}
+
+function frAgo(at) {
+  const d = Date.now() - (at || 0);
+  if (d < 60e3) return 'now';
+  if (d < 3600e3) return `${Math.floor(d / 60e3)}m`;
+  if (d < 86400e3) return `${Math.floor(d / 3600e3)}h`;
+  if (d < 6 * 86400e3) return new Date(at).toLocaleDateString([], { weekday: 'short' });
+  return new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function frDayKey(at) {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function frDayLabel(at) {
+  const d = new Date(at);
+  const today = new Date();
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(today) - start(d)) / 86400e3);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function frTabInk() {
+  const tabs = document.getElementById('fr-tabs');
+  if (!tabs || !tabs.offsetWidth) return;
+  let ink = tabs.querySelector('.fr-tab-ink');
+  if (!ink) {
+    ink = document.createElement('span');
+    ink.className = 'fr-tab-ink';
+    tabs.prepend(ink);
+  }
+  const t = tabs.querySelector('.fr-tab.active');
+  if (!t) return;
+  ink.style.transform = `translateX(${t.offsetLeft}px)`;
+  ink.style.width = `${t.offsetWidth}px`;
 }
 
 function renderConversation() {
@@ -11738,45 +12594,107 @@ function renderConversation() {
   const input = document.getElementById('fr-input');
   const send = document.getElementById('fr-send');
 
+  const main = box.closest('.fr-main');
+  const emoji = document.getElementById('fr-emoji');
+
   if (!frConversation) {
-    head.textContent = 'Select someone to chat';
-    actions.innerHTML = '';
+    main?.classList.add('fr-idle');
+    head.innerHTML = ''; delete head.dataset.html;
+    actions.innerHTML = ''; delete actions.dataset.html;
+    input.placeholder = 'Message';
     input.disabled = true; send.disabled = true;
+    if (emoji) emoji.disabled = true;
+    frRenderIdle(box);
+    frRendered = { key: null, sig: null, ids: new Set() };
+    document.getElementById('fr-jump')?.classList.add('hidden');
     return;
   }
+  main?.classList.remove('fr-idle');
   input.disabled = false; send.disabled = false;
+  if (emoji) emoji.disabled = false;
 
+  const key = `${frConversation.kind}:${frConversation.id}`;
   let messages = [];
+  let headHtml = '';
+  let actionsHtml = '';
   if (frConversation.kind === 'dm') {
     const person = [...s.friends, ...s.following, ...s.followers].find(p => p.uuid === frConversation.id);
     const headName = person?.name || frConversation.name;
-    head.innerHTML = `<span class="fr-head-name" ${personAttr(frConversation.id, headName)}>${escapeHtml(headName)}</span>${person ? ` · ${escapeHtml(frStatusLabel(person))}` : ''} ${reportFlag(frConversation.id, headName)}`;
+    const st = person?.status || 'offline';
+    headHtml = `
+      <div class="fr-face-wrap fr-head-avatar" ${personAttr(frConversation.id, headName)} title="View profile">
+        <img class="fr-face" src="${frAvatar(frConversation.id)}" alt="">
+        <span class="fr-presence ${st}"></span>
+      </div>
+      <div class="fr-head-text">
+        <div class="fr-head-line"><span class="fr-head-name" ${personAttr(frConversation.id, headName)}>${escapeHtml(headName)}</span>${reportFlag(frConversation.id, headName)}</div>
+        <div class="fr-head-status ${st}">${escapeHtml(person ? frStatusLabel(person) : 'Not following')}</div>
+      </div>`;
+    input.placeholder = `Message ${headName}`;
     messages = s.dms[frConversation.id] || [];
     const canCall = (s.friends || []).some(p => p.uuid === frConversation.id);
-    actions.innerHTML = `
-      ${canCall ? '<button class="pill-btn call" data-act="call">Call</button>' : ''}
-      <button class="pill-btn" data-act="invite-server">Invite to server</button>
-      <button class="pill-btn" data-act="clear">Clear chat</button>`;
+    actionsHtml = `
+      ${canCall ? `<button class="fr-hbtn call" data-act="call" title="Voice call" aria-label="Voice call">${FR_ICONS.call}</button>` : ''}
+      <button class="fr-hbtn" data-act="invite-server" title="Invite to a server" aria-label="Invite to a server">${FR_ICONS.server}</button>
+      <button class="fr-hbtn" data-act="more" title="More" aria-label="More">${FR_DOTS_SVG}</button>`;
   } else {
     const g = s.groups.find(x => x.id === frConversation.id);
-    head.textContent = g ? `${g.name} · ${g.members.length} members` : frConversation.name;
+    const name = g?.name || frConversation.name;
+    const online = (g?.members || []).filter(m => frIsOn([...s.friends, ...s.following].find(p => p.uuid === m.uuid))).length;
+    headHtml = `
+      <div class="fr-group-icon fr-head-avatar">${g?.icon
+        ? `<img src="${groupIconSrc(g.icon)}" alt="">`
+        : escapeHtml(String(name).slice(0, 2).toUpperCase())}</div>
+      <div class="fr-head-text">
+        <div class="fr-head-line"><span class="fr-head-name">${escapeHtml(name)}</span></div>
+        <div class="fr-head-status group">${g ? `${g.members.length} member${g.members.length === 1 ? '' : 's'}${online ? ` · ${online} online` : ''}${g.isOwner ? ' · you own this' : ''}` : ''}</div>
+      </div>`;
+    input.placeholder = `Message ${name}`;
     messages = g?.messages || [];
-    actions.innerHTML = `
-      ${g?.isOwner ? '<button class="pill-btn" data-act="invite-server">Invite group to server</button>' : ''}
-      <button class="pill-btn" data-act="members">Members</button>
-      <button class="pill-btn" data-act="clear">Clear chat</button>
-      <button class="pill-btn danger" data-act="leave">${g?.isOwner ? 'Delete group' : 'Leave'}</button>`;
+    actionsHtml = `
+      ${g?.isOwner ? `<button class="fr-hbtn" data-act="invite-server" title="Invite group to a server" aria-label="Invite group to a server">${FR_ICONS.server}</button>` : ''}
+      <button class="fr-hbtn" data-act="members" title="Members" aria-label="Members">${FR_ICONS.members}</button>
+      <button class="fr-hbtn" data-act="more" title="More" aria-label="More">${FR_DOTS_SVG}</button>`;
+  }
+  if (head.dataset.html !== headHtml) {
+    head.dataset.html = headHtml;
+    head.innerHTML = headHtml;
+    head.querySelectorAll('img').forEach(i => { i.onerror = () => { i.style.visibility = 'hidden'; }; });
+  }
+  if (actions.dataset.html !== actionsHtml) {
+    actions.dataset.html = actionsHtml;
+    actions.innerHTML = actionsHtml;
+    actions.querySelectorAll('[data-act]').forEach(b => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (b.dataset.act === 'more') showChatMenu(b);
+        else handleChatAction(b.dataset.act);
+      });
+    });
   }
   const ownsGroup = frConversation.kind === 'group' && !!s.groups.find(x => x.id === frConversation.id)?.isOwner;
 
-  actions.querySelectorAll('[data-act]').forEach(b => {
-    b.addEventListener('click', () => handleChatAction(b.dataset.act));
-  });
+  // Presence and unread counts change far more often than the messages do;
+  // rebuilding the thread on every one of those resets hover and scroll.
+  const sig = `${key}|${s.self?.id}|${frEditing?.id || ''}|${ownsGroup}|`
+    + messages.map(m => `${m.id}:${m.edited ? 1 : 0}:${m.text || ''}`).join('\u0001');
+  if (frRendered.sig === sig) { renderReplyBar(); return; }
+  const switched = frRendered.key !== key;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 90;
+  const prevTop = box.scrollTop;
+  const seen = switched ? null : frRendered.ids;
 
   box.innerHTML = '';
   if (!messages.length) {
-    box.innerHTML = '<p class="dim fr-empty">No messages yet.</p>';
+    const who = frConversation.kind === 'dm' ? escapeHtml(frConversation.name || 'them') : 'the group';
+    box.innerHTML = `<div class="fr-thread-empty">
+      <div class="fr-te-icon">👋</div>
+      <div class="fr-te-title">Say hi to ${who}</div>
+      <div class="fr-te-sub">This is the start of your conversation.</div>
+    </div>`;
   }
+  let prev = null;
+  let mineFresh = false;
   for (const m of messages) {
     const mine = m.mine || m.from === s.self?.id;
     // Everyone is shown by their in-game name and face, including you.
@@ -11787,25 +12705,40 @@ function renderConversation() {
       ? (s.self?.name || 'You')
       : (m.name || s.people?.[m.from]?.name || frConversation.name);
 
+    if (!prev || frDayKey(prev.m.at) !== frDayKey(m.at)) {
+      const sep = document.createElement('div');
+      sep.className = 'fr-day';
+      sep.innerHTML = `<span>${escapeHtml(frDayLabel(m.at))}</span>`;
+      box.appendChild(sep);
+      prev = null;
+    }
+    const cont = !!prev && prev.sender === senderUuid && !prev.m.invite && !m.reply
+      && (m.at - prev.m.at) < 5 * 60 * 1000;
+    prev = { m, sender: senderUuid };
+
     const editing = frEditing?.id === m.id;
+    const fresh = seen && !seen.has(m.id);
+    if (fresh && mine) mineFresh = true;
+    const time = new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const el = document.createElement('div');
-    el.className = `fr-msg-row ${mine ? 'mine' : ''}`;
+    el.className = `fr-msg-row ${mine ? 'mine' : ''}${cont ? ' cont' : ''}${fresh ? ' fr-new' : ''}`;
     el.dataset.id = m.id;
     const where = frConversation.kind === 'dm' ? 'Direct message' : `Group: ${s.groups.find(x => x.id === frConversation.id)?.name || 'group chat'}`;
     el.innerHTML = `
       <img class="fr-msg-face" src="${frAvatar(senderUuid)}" alt="" ${personAttr(senderUuid, senderName)}>
       <div class="fr-msg-col">
-        <div class="fr-msg-meta">
+        ${cont ? '' : `<div class="fr-msg-meta">
           <span class="fr-msg-who" ${personAttr(senderUuid, senderName)}>${escapeHtml(senderName)}</span>
           ${mine ? '' : reportFlag(senderUuid, senderName, { where, text: m.text, at: m.at })}
-          <span class="fr-msg-time">${new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <span class="fr-msg-time">${time}</span>
           ${m.edited ? '<span class="fr-msg-edited">edited</span>' : ''}
-        </div>
+        </div>`}
         ${m.reply ? `<div class="fr-msg-quote"><b>${escapeHtml(m.reply.name || 'Message')}</b> ${escapeHtml(m.reply.text || '')}</div>` : ''}
         ${editing
           ? `<div class="fr-msg-editwrap"><input class="fr-msg-edit" maxlength="500"><span class="fr-msg-edit-hint">Enter to save · Esc to cancel</span></div>`
-          : `<div class="fr-msg ${mine ? 'mine' : ''}">${linkifyText(m.text)}</div>`}
+          : `<div class="fr-msg ${mine ? 'mine' : ''}" title="${escapeHtml(new Date(m.at).toLocaleString())}">${linkifyText(m.text)}${cont && m.edited ? ' <span class="fr-msg-edited">(edited)</span>' : ''}</div>`}
       </div>
+      ${cont ? `<span class="fr-msg-hover-time">${time}</span>` : ''}
       <button class="fr-msg-more" title="More" aria-label="Message options">${FR_DOTS_SVG}</button>`;
     el.querySelector('.fr-msg-face').onerror = (e) => { e.target.style.visibility = 'hidden'; };
     el.querySelector('.fr-msg-more').addEventListener('click', (e) => {
@@ -11826,8 +12759,118 @@ function renderConversation() {
     if (m.invite) el.querySelector('.fr-msg-col').appendChild(buildInviteCard(m.invite, mine));
     box.appendChild(el);
   }
-  if (!frEditing) box.scrollTop = box.scrollHeight;
+
+  const freshCount = seen ? messages.filter(m => !seen.has(m.id)).length : 0;
+  frRendered = { key, sig, ids: new Set(messages.map(m => m.id)) };
+  const jump = document.getElementById('fr-jump');
+  if (switched) {
+    box.classList.remove('fr-swap');
+    void box.offsetWidth;
+    box.classList.add('fr-swap');
+    box.scrollTop = box.scrollHeight;
+    jump?.classList.add('hidden');
+  } else if (frEditing) {
+    box.scrollTop = prevTop;
+  } else if (nearBottom || mineFresh) {
+    box.scrollTop = box.scrollHeight;
+    jump?.classList.add('hidden');
+  } else {
+    box.scrollTop = prevTop;
+    if (freshCount) jump?.classList.remove('hidden');
+  }
   renderReplyBar();
+}
+
+/** No conversation open: offer the people you'd most likely talk to. */
+function frRenderIdle(box) {
+  const s = friendsState;
+  const picks = [...(s.friends || [])]
+    .filter(p => !p.blocked)
+    .sort((a, b) => frIsOn(b) - frIsOn(a)
+      || (frLastMessage('dm', b.uuid)?.at || 0) - (frLastMessage('dm', a.uuid)?.at || 0))
+    .slice(0, 6);
+  const sig = 'idle|' + picks.map(p => `${p.uuid}:${p.status}`).join(',');
+  if (box.dataset.idle === sig && box.querySelector('.fr-idle-hero')) return;
+  box.dataset.idle = sig;
+  box.innerHTML = `
+    <div class="fr-idle-hero">
+      <div class="fr-idle-orb">${FR_ICONS.chat}</div>
+      <div class="fr-idle-title">Your messages</div>
+      <div class="fr-idle-sub">${picks.length
+        ? 'Pick someone on the left, or jump straight into a chat.'
+        : 'Follow someone. Once they follow you back, you can chat here.'}</div>
+      ${picks.length ? `<div class="fr-idle-picks">${picks.map(p => `
+        <button class="fr-idle-pick ${p.status || 'offline'}" data-uuid="${escapeHtml(p.uuid)}" title="Message ${escapeHtml(p.name)}">
+          <span class="fr-face-wrap"><img class="fr-face" src="${frAvatar(p.uuid)}" alt=""><span class="fr-presence ${p.status || 'offline'}"></span></span>
+          <span class="fr-idle-name">${escapeHtml(p.name)}</span>
+          <span class="fr-idle-st">${escapeHtml(frStatusLabel(p))}</span>
+        </button>`).join('')}</div>` : ''}
+      <div class="fr-idle-actions">
+        <button class="pill-btn" data-idle="find">Find people</button>
+        ${(s.friends || []).length ? '<button class="pill-btn primary" data-idle="group">New group chat</button>' : ''}
+      </div>
+    </div>`;
+  box.querySelectorAll('.fr-idle-pick').forEach(b => b.addEventListener('click', () => {
+    const p = picks.find(x => x.uuid === b.dataset.uuid);
+    if (p) openConversation({ kind: 'dm', id: p.uuid, name: p.name });
+  }));
+  box.querySelectorAll('.fr-idle-pick img').forEach(i => { i.onerror = () => { i.style.visibility = 'hidden'; }; });
+  box.querySelector('[data-idle="find"]')?.addEventListener('click', () => document.getElementById('fr-search')?.focus());
+  box.querySelector('[data-idle="group"]')?.addEventListener('click', () => openGroupPicker());
+}
+
+function showChatMenu(anchor) {
+  document.querySelector('.fr-menu')?.remove();
+  const s = friendsState;
+  const conv = frConversation;
+  if (!conv) return;
+  const g = conv.kind === 'group' ? s.groups.find(x => x.id === conv.id) : null;
+  const items = conv.kind === 'dm'
+    ? [['View profile', 'profile', 'beta-only'], ['Clear chat', 'clear', '']]
+    : [['Members', 'members', ''], ['Clear chat', 'clear', ''], [g?.isOwner ? 'Delete group' : 'Leave group', 'leave', 'danger']];
+  const menu = document.createElement('div');
+  menu.className = 'fr-menu';
+  menu.innerHTML = items.map(([label, act, cls]) => `<button data-act="${act}" class="${cls}">${label}</button>`).join('');
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, r.right - menu.offsetWidth))}px`;
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    menu.remove();
+    if (b.dataset.act === 'profile') openProfile({ uuid: conv.id, name: conv.name });
+    else handleChatAction(b.dataset.act);
+  }));
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+}
+
+function showEmojiPicker(anchor) {
+  const open = document.querySelector('.fr-emoji-pop');
+  if (open) { open.remove(); return; }
+  const pop = document.createElement('div');
+  pop.className = 'fr-emoji-pop';
+  pop.innerHTML = FR_EMOJI.map(e => `<button type="button">${e}</button>`).join('');
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${Math.max(8, r.left)}px`;
+  pop.style.top = `${r.top - pop.offsetHeight - 8}px`;
+  const input = document.getElementById('fr-input');
+  pop.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    e.stopPropagation();
+    const at = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? at;
+    const next = input.value.slice(0, at) + b.textContent + input.value.slice(end);
+    if (next.length > 500) return;
+    input.value = next;
+    input.focus();
+    input.setSelectionRange(at + b.textContent.length, at + b.textContent.length);
+    input.dispatchEvent(new Event('input'));
+  });
+  setTimeout(() => document.addEventListener('click', function off(e) {
+    if (pop.contains(e.target)) { document.addEventListener('click', off, { once: true }); return; }
+    pop.remove();
+  }, { once: true }), 0);
 }
 
 function renderReplyBar() {
@@ -12258,6 +13301,9 @@ async function frSend() {
 (function wireFriends() {
   if (!document.getElementById('view-friends')) return;
 
+  // Tabs change width when the sidebar does (narrow: only the open one keeps its name).
+  const frTabsEl = document.getElementById('fr-tabs');
+  if (frTabsEl) new ResizeObserver(() => frTabInk()).observe(frTabsEl);
   document.querySelectorAll('#fr-tabs .fr-tab').forEach(t => {
     t.addEventListener('click', () => {
       document.querySelectorAll('#fr-tabs .fr-tab').forEach(x => x.classList.remove('active'));
@@ -12267,11 +13313,50 @@ async function frSend() {
     });
   });
 
-  document.getElementById('fr-send').addEventListener('click', frSend);
-  document.getElementById('fr-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') frSend();
+  const frInput = document.getElementById('fr-input');
+  const frCompose = document.getElementById('fr-compose');
+  const frLeft = document.getElementById('fr-left');
+  const syncCompose = () => {
+    const n = frInput.value.length;
+    frCompose.classList.toggle('ready', !!frInput.value.trim());
+    frLeft.classList.toggle('hidden', n < 400);
+    frLeft.classList.toggle('low', n >= 480);
+    frLeft.textContent = String(500 - n);
+  };
+  frInput.addEventListener('input', syncCompose);
+  document.getElementById('fr-send').addEventListener('click', () => { frSend(); syncCompose(); });
+  frInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { frSend(); syncCompose(); }
     if (e.key === 'Escape' && frReplyTo) { frReplyTo = null; renderReplyBar(); }
   });
+  document.getElementById('fr-emoji').addEventListener('click', (e) => {
+    e.stopPropagation();
+    showEmojiPicker(e.currentTarget);
+  });
+
+  const frBox = document.getElementById('fr-messages');
+  const frJump = document.getElementById('fr-jump');
+  let frPinned = true;
+  frBox.addEventListener('scroll', () => {
+    frPinned = frBox.scrollHeight - frBox.scrollTop - frBox.clientHeight < 90;
+    if (frPinned) frJump.classList.add('hidden');
+  }, { passive: true });
+  new ResizeObserver(() => {
+    if (frPinned && frConversation) frBox.scrollTop = frBox.scrollHeight;
+  }).observe(frBox);
+  frJump.addEventListener('click', () => {
+    frBox.scrollTo({ top: frBox.scrollHeight, behavior: 'smooth' });
+    frJump.classList.add('hidden');
+  });
+
+  const frSearch = document.getElementById('fr-search');
+  frSearch.addEventListener('input', () => { if (friendsState) renderFriendsView(); });
+  frSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('fr-add-btn').click();
+    if (e.key === 'Escape' && frSearch.value) { frSearch.value = ''; renderFriendsView(); }
+  });
+  window.addEventListener('resize', () => requestAnimationFrame(frTabInk));
+  document.querySelector('[data-view="friends"]')?.addEventListener('click', () => setTimeout(frTabInk, 30));
 
   document.getElementById('fr-add-btn').addEventListener('click', async () => {
     const v = document.getElementById('fr-search').value.trim();
@@ -12740,41 +13825,7 @@ function showPeopleMenu(person, x, y) {
     } catch { /* full */ }
   };
   panel.querySelectorAll('.lc-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); e.stopPropagation();
-    const dir = grip.dataset.rz;
-    const east = dir.includes('e'), south = dir.includes('s');
-    const r = panel.getBoundingClientRect();
-    const sx = e.clientX, sy = e.clientY;
-    const maxW = east ? window.innerWidth - 8 - r.left : r.right - 8;
-    const maxH = south ? window.innerHeight - 8 - r.top : r.bottom - 40;
-    panel.classList.add('resizing');
-    // Regenerating the glass lens every frame makes the drag stutter;
-    // repaint it once when the drag ends.
-    window.SolarLiquidGlass?.detach(panel);
-    const move = scPerFrame((ev) => {
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
-      const w = Math.max(MIN_W, Math.min(maxW, r.width + (east ? dx : -dx)));
-      const h = Math.max(MIN_H, Math.min(maxH, r.height + (south ? dy : -dy)));
-      panel.style.width = `${w}px`;
-      panel.style.height = `${h}px`;
-      panel.style.left = `${east ? r.left : r.right - w}px`;
-      panel.style.top = `${south ? r.top : r.bottom - h}px`;
-      panel.style.right = 'auto';
-    });
-    const up = () => {
-      move.flush();
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-      panel.classList.remove('resizing');
-      panel._scZoom?.();
-      window.SolarLiquidGlass?.attach(panel);
-      saveLayout();
-      scFloatBump(lcFloat, { force: true });
-      scFloatFit(lcFloat);
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    scResize(e, grip, { f: lcFloat, panel, minW: MIN_W, minH: MIN_H, save: saveLayout });
   }));
   head.addEventListener('dblclick', (e) => {
     if (e.target.closest('button') || lcFloat.win) return;
@@ -13236,7 +14287,6 @@ function showPeopleMenu(person, x, y) {
   const progressEta = document.getElementById('update-progress-eta');
   const notesWrap = document.getElementById('update-notes-wrap');
   const updateChip = document.getElementById('update-chip');
-  const betaChip = document.getElementById('beta-chip');
   const updatesMenu = document.getElementById('updates-menu');
   const updatesCheck = document.getElementById('updates-check');
   const stableMeta = document.getElementById('updates-stable-meta');
@@ -13335,8 +14385,59 @@ function showPeopleMenu(person, x, y) {
       notesWrap?.classList.toggle('hidden', !items.length);
     }
   }
+  // Beta: a floating panel like Online / Live chat. Drag it by the header,
+  // double-click the header to send it back under the button; it stays open until X.
+  const UM_BOX = 'sc.updates.box';
+  const umSaved = () => {
+    try { const b = JSON.parse(localStorage.getItem(UM_BOX) || 'null'); return b && Number.isFinite(b.x) && Number.isFinite(b.y) ? b : null; } catch { return null; }
+  };
+  const umPlace = (x, y) => {
+    const w = updatesMenu.offsetWidth || 340, h = updatesMenu.offsetHeight || 260;
+    updatesMenu.style.left = `${Math.round(Math.max(8, Math.min(x, window.innerWidth - w - 8)))}px`;
+    updatesMenu.style.top = `${Math.round(Math.max(40, Math.min(y, window.innerHeight - h - 8)))}px`;
+  };
+  const umSave = () => {
+    const x = parseFloat(updatesMenu.style.left), y = parseFloat(updatesMenu.style.top);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const size = updatesMenu.classList.contains('um-sized') ? { w: updatesMenu.offsetWidth, h: updatesMenu.offsetHeight } : {};
+    try { localStorage.setItem(UM_BOX, JSON.stringify({ x, y, ...size })); } catch { /* full */ }
+  };
+  // Never so narrow the buttons clip, never so short anything but the beta list gives way
+  // (and that keeps at least a row of tiles).
+  const UM_MIN_W = 310;
+  const umMinH = () => {
+    const list = updatesMenu.querySelector('#updates-beta-list');
+    const shown = !!list && list.offsetParent !== null;
+    const content = updatesMenu.scrollHeight + (updatesMenu.offsetHeight - updatesMenu.clientHeight);
+    return content - (shown ? list.clientHeight - Math.min(list.scrollHeight, 100) : 0);
+  };
+  const umSize = (w, h) => {
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+    updatesMenu.style.width = `${Math.round(Math.max(UM_MIN_W, Math.min(w, window.innerWidth - 16)))}px`;
+    updatesMenu.classList.add('um-sized');
+    updatesMenu.style.height = `${Math.round(Math.max(umMinH(), Math.min(h, window.innerHeight - 48)))}px`;
+  };
+  const umUnsize = () => {
+    updatesMenu.classList.remove('um-sized');
+    updatesMenu.style.width = '';
+    updatesMenu.style.height = '';
+  };
+  const umFloat = updatesMenu ? scFloatAdd('updates', {
+    panel: updatesMenu, host: updatesMenu, chip: updateChip, title: 'Updates',
+    closeBtn: document.getElementById('updates-close'), btnClass: 'sc-hbtn',
+    isOpen: () => !updatesMenu.classList.contains('hidden'),
+    place: umPlace, save: umSave, restore: () => placeMenu(), close: () => closeMenu(),
+  }) : null;
+
   function placeMenu() {
     if (!updatesMenu || !updateChip || updatesMenu.classList.contains('hidden')) return;
+    const saved = betaLayoutOn() ? umSaved() : null;
+    if (!betaLayoutOn()) umUnsize();
+    if (saved) {
+      if (Number.isFinite(saved.w)) umSize(saved.w, saved.h);
+      umPlace(saved.x, saved.y);
+      return;
+    }
     const r = updateChip.getBoundingClientRect();
     const pad = 8;
     const width = Math.max(280, updatesMenu.offsetWidth || 280);
@@ -13353,9 +14454,10 @@ function showPeopleMenu(person, x, y) {
 
   function closeMenu() {
     if (!updatesMenu) return;
+    if (umFloat?.win) { scDock('updates', { shut: true }); return; }
+    umFloat?.glideAnim?.cancel();
     popClose(updatesMenu, () => updatesMenu.classList.add('hidden'));
     document.getElementById('updates-menu-wrap')?.classList.remove('open');
-    document.body.classList.remove('updates-menu-open');
   }
 
   function openMenu() {
@@ -13366,14 +14468,17 @@ function showPeopleMenu(person, x, y) {
     }
     updatesMenu.classList.remove('hidden');
     document.getElementById('updates-menu-wrap')?.classList.add('open');
-    document.body.classList.add('updates-menu-open');
-    // Next frame so layout has size before measuring
-    requestAnimationFrame(() => { placeMenu(); popDown(updatesMenu, updateChip); });
+    // Same frame it's shown: placed, painted and already popping, never a bare frame first.
+    placeMenu();
+    scFloatClear(updatesMenu);
+    popDown(updatesMenu, updateChip);
     // Never show a stale "up to date" — re-check the feed every time it opens.
     if (!lastState?.downloading && !lastState?.installing && !lastState?.checking) {
-      if (stableMeta && !lastState?.stableOffer) stableMeta.textContent = 'Checking for updates…';
-      window.nebula.checkForUpdate?.().then((s) => { if (s) renderPanel(s); }).catch(() => {});
+      updatesCheck?.classList.add('spin');
+      window.nebula.checkForUpdate?.().then((s) => { if (s) renderPanel(s); }).catch(() => {})
+        .finally(() => updatesCheck?.classList.remove('spin'));
     }
+    loadBetaList(false);
   }
 
   function toggleMenu() {
@@ -13381,28 +14486,146 @@ function showPeopleMenu(person, x, y) {
     else closeMenu();
   }
 
+  // Looked up inside the panel so it still works while popped out into its own window.
+  const um = (id) => updatesMenu?.querySelector(`#${id}`) || null;
+  /** Only touch the DOM when it changed, so nothing restarts on every state tick. */
+  const umSet = (el, html) => {
+    if (!el || el._umHtml === html) return;
+    el._umHtml = html;
+    el.innerHTML = html;
+  };
+  /** '3.22.80-beta.37' → { base: '3.22.80', beta: 37 } */
+  const umParse = (v) => {
+    const m = /^(.*?)-beta\.(\d+)$/.exec(String(v || ''));
+    return m ? { base: m[1], beta: Number(m[2]) } : { base: String(v || ''), beta: null };
+  };
+  const umDay = (iso) => {
+    const d = iso ? new Date(iso) : null;
+    return d && !Number.isNaN(+d) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+  };
+  const umAgo = (iso) => {
+    const t = iso ? Date.parse(iso) : NaN;
+    if (Number.isNaN(t)) return '';
+    const h = (Date.now() - t) / 3600000;
+    if (h < 1) return 'Just now';
+    if (h < 24) return `${Math.floor(h)}h ago`;
+    const d = Math.floor(h / 24);
+    return d === 1 ? 'Yesterday' : d < 14 ? `${d}d ago` : umDay(iso);
+  };
+  const UM_TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
+  let umCheckedAt = 0;
+  setInterval(() => { if (!updatesMenu?.classList.contains('hidden')) umWhen(); }, 30000);
+  function umWhen() {
+    const el = um('updates-when');
+    if (!el) return;
+    const s = umCheckedAt ? Math.round((Date.now() - umCheckedAt) / 1000) : -1;
+    el.textContent = s < 0 ? '' : s < 45 ? 'Checked just now' : s < 3600 ? `Checked ${Math.round(s / 60)} min ago` : `Checked ${Math.round(s / 3600)} h ago`;
+  }
+  // Beta builds: your beta up top, then every beta, then stable with Switch.
+  // Stable builds: your version up top, then every beta to try.
+  let betaListData = null;
+  let betaListLoading = false;
   function renderMenu(state) {
+    const onBeta = state.localChannel === 'beta';
     const hasAny = Boolean(state.stableOffer || state.betaOffer || state.downloaded);
     updateChip?.classList.toggle('has-update', hasAny && !state.downloaded);
-    betaChip?.classList.toggle('hidden', state.localChannel !== 'beta');
-    switchStable?.classList.toggle('hidden', state.localChannel !== 'beta');
+    if (!state.checking && state.localVersion) umCheckedAt = Date.now();
+    umWhen();
+    const here = umParse(state.localVersion);
+    const cur = um('updates-current');
+    if (cur) cur.textContent = state.localVersion ? `You're on ${onBeta ? 'beta' : 'stable'}` : 'Checking your version…';
+    const chan = um('updates-chan');
+    if (chan) chan.textContent = 'Installed';
+    umSet(um('updates-ver'), state.localVersion
+      ? `<b>${escapeHtml(here.base)}</b>${here.beta != null ? `<span class="um-tag beta"><small>Beta</small><i>${here.beta}</i></span>` : '<span class="um-tag"><small>Stable</small></span>'}`
+      : '<b>—</b>');
 
-    if (stableMeta) {
-      if (state.stableOffer) stableMeta.textContent = `v${state.localVersion} → v${state.stableOffer.version}` + (state.stableOffer.policy === 'mandatory' ? ' (required)' : '');
-      else stableMeta.textContent = `You're on v${state.localVersion} — up to date`;
+    const stable = state.stableOffer;
+    const beta = state.betaOffer;
+    const offer = onBeta ? beta : stable;
+    let kind = 'ok', line = onBeta ? "You're on the newest beta" : "You're up to date";
+    if (!state.localVersion) { kind = 'idle'; line = 'Checking for updates…'; }
+    else if (offer) {
+      const o = umParse(offer.version);
+      kind = 'new';
+      line = onBeta
+        ? `Beta ${o.beta ?? offer.version} is ready`
+        : `${offer.version} is ${offer.policy === 'mandatory' ? 'required' : 'ready'}`;
+    }
+    const status = um('updates-status');
+    if (status) {
+      status.className = `um-status ${kind}`;
+      umSet(status, `<i>${kind === 'ok' ? UM_TICK : ''}</i><span>${escapeHtml(line)}</span>`);
     }
     if (stableGo) {
-      const show = Boolean(state.stableOffer);
-      stableGo.classList.toggle('hidden', !show);
-      stableGo.textContent = state.stableOffer?.policy === 'mandatory' ? 'Update now' : 'Install';
+      stableGo.classList.toggle('hidden', onBeta || !stable);
+      stableGo.textContent = stable?.policy === 'mandatory' ? 'Update now' : 'Update';
     }
-    if (betaMeta) {
-      if (state.betaOffer) betaMeta.textContent = `Beta v${state.betaOffer.version} available (optional)`;
-      else betaMeta.textContent = 'No beta available';
+    betaGo?.classList.toggle('hidden', !onBeta || !beta);
+
+    const stableRow = um('updates-stable-row');
+    stableRow?.classList.toggle('hidden', !onBeta);
+    const stableLatest = state.stableLatest;
+    umSet(stableMeta, stableLatest
+      ? `<b>${escapeHtml(stableLatest.version)}</b><small>Newest stable release</small>`
+      : '<b>No stable version yet</b><small>Check back later</small>');
+    switchStable?.classList.toggle('hidden', !onBeta || !stableLatest);
+
+    const betaLabel = um('updates-beta-label');
+    if (betaLabel) betaLabel.textContent = onBeta ? 'Beta builds' : 'Try a beta';
+    renderBetaList();
+  }
+  function renderBetaList() {
+    const host = um('updates-beta-list');
+    if (!host || !betaMeta) return;
+    const onBeta = lastState?.localChannel === 'beta';
+    const items = betaListData?.betas || [];
+    const count = um('updates-beta-count');
+    if (count) count.textContent = items.length ? String(items.length) : '';
+    let hint = '';
+    if (!betaListData) hint = 'Loading betas…';
+    else if (!items.length) hint = 'No beta versions right now';
+    else if (!onBeta) hint = 'Early builds with new stuff in them. You can switch back to stable any time.';
+    betaMeta.textContent = hint;
+    betaMeta.classList.toggle('hidden', !hint);
+    if (!items.length) { host.classList.add('hidden'); return; }
+    const mine = onBeta ? lastState?.localVersion || '' : '';
+    // One tile per beta: its name, when it came out, Install and About (what's in it).
+    umSet(host, items.map((b, i) => {
+      const v = umParse(b.version);
+      const name = v.beta != null ? `Beta ${v.beta}` : b.version;
+      const isMine = b.version === mine;
+      return `<div class="um-t${isMine ? ' mine' : ''}">
+        <div class="um-t-name"><b>${escapeHtml(name)}</b>${!isMine && i === 0 ? '<i class="um-pill">New</i>' : ''}</div>
+        <small>${escapeHtml(umAgo(b.publishedAt) || v.base)}</small>
+        <div class="um-t-btns">
+          ${isMine ? '<span class="um-t-on" title="Installed — you\'re on this build">In use</span>' : `<button type="button" class="um-get um-beta-go" data-v="${escapeHtml(b.version)}">Install</button>`}
+          <button type="button" class="um-about" data-v="${escapeHtml(b.version)}">About</button>
+        </div>
+      </div>`;
+    }).join(''));
+    host.classList.remove('hidden');
+  }
+  async function loadBetaList(force) {
+    if (betaListLoading || !window.nebula.listBetas) return;
+    betaListLoading = true;
+    try {
+      betaListData = await window.nebula.listBetas(Boolean(force));
+    } catch {
+      betaListData = { betas: [] };
+    } finally {
+      betaListLoading = false;
     }
-    if (betaGo) {
-      betaGo.classList.toggle('hidden', !state.betaOffer);
-    }
+    if (lastState) renderBetaList();
+  }
+  let noteTimer = null;
+  function setNote(text) {
+    const note = um('updates-note');
+    if (!note) return;
+    clearTimeout(noteTimer);
+    note.textContent = text || '';
+    note.classList.toggle('on', Boolean(text));
+    if (text) noteTimer = setTimeout(() => note.classList.remove('on'), 2600);
   }
 
   function renderPanel(state) {
@@ -13508,31 +14731,75 @@ function showPeopleMenu(person, x, y) {
     e.stopPropagation();
     toggleMenu();
   });
-  document.addEventListener('click', (e) => {
-    const wrap = document.getElementById('updates-menu-wrap');
-    if (wrap && !wrap.contains(e.target) && updatesMenu && !updatesMenu.contains(e.target)) closeMenu();
+  document.getElementById('updates-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeMenu();
   });
-  window.addEventListener('resize', () => placeMenu());
+  const umHead = updatesMenu?.querySelector('.um-head');
+  umHead?.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.target.closest('button') || !umFloat || umFloat.win) return;
+    e.preventDefault();
+    const r = updatesMenu.getBoundingClientRect();
+    const gx = e.clientX - r.left, gy = e.clientY - r.top;
+    updatesMenu.classList.add('dragging');
+    const move = scPerFrame((ev) => {
+      umPlace(ev.clientX - gx, ev.clientY - gy);
+      scFloatDrag(umFloat, ev, { x: ev.clientX - gx, y: ev.clientY - gy, w: r.width, h: r.height });
+    });
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      move.flush?.();
+      updatesMenu.classList.remove('dragging');
+      umSave();
+      scFloatDrop(umFloat, ev, { x: gx, y: gy });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+  umHead?.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button') || umFloat?.win) return;
+    try { localStorage.removeItem(UM_BOX); } catch { /* ignore */ }
+    umUnsize();
+    placeMenu();
+    scFloatClear(updatesMenu);
+  });
+  updatesMenu?.querySelectorAll('.um-rz').forEach((grip) => grip.addEventListener('mousedown', (e) => {
+    if (!betaLayoutOn() || umFloat?.win) return;
+    scResize(e, grip, {
+      f: umFloat, panel: updatesMenu, minW: UM_MIN_W, minH: umMinH, save: umSave,
+      prep: (r) => {
+        updatesMenu.style.width = `${r.width}px`;
+        updatesMenu.style.height = `${r.height}px`;
+        updatesMenu.classList.add('um-sized');
+      },
+    });
+  }));
+  window.addEventListener('resize', () => { if (!umFloat?.win) placeMenu(); });
+  // Opening or growing on its own clears space; a corner drag makes room itself as it goes.
+  if (updatesMenu) new ResizeObserver(() => { if (!umFloat?.win && !updatesMenu.classList.contains('hidden') && !updatesMenu.classList.contains('resizing')) scFloatClear(updatesMenu); }).observe(updatesMenu);
   // Launchpad scrolls inside .view — keep the fixed menu under the chip.
   document.querySelectorAll('.view').forEach((v) => {
-    v.addEventListener('scroll', () => placeMenu(), { passive: true });
+    v.addEventListener('scroll', () => { if (!umFloat?.win) placeMenu(); }, { passive: true });
   });
 
   updatesCheck?.addEventListener('click', async () => {
-    updatesCheck.textContent = 'Checking…';
+    if (updatesCheck.classList.contains('spin')) return;
+    updatesCheck.classList.add('spin');
+    setNote('');
+    const started = Date.now();
     try {
       const s = await window.nebula.checkForUpdate();
+      await loadBetaList(true);
+      // Let the spin read as a check even when the answer is instant.
+      await new Promise((r) => setTimeout(r, Math.max(0, 500 - (Date.now() - started))));
       renderPanel(s || {});
       const hasStable = Boolean(s?.stableOffer);
       const hasBeta = Boolean(s?.betaOffer);
       if (!hasStable && !hasBeta) {
-        if (stableMeta) stableMeta.textContent = 'No updates — you\'re on the latest';
-        if (betaMeta && !s?.betaLatest) betaMeta.textContent = 'No beta available';
-        updatesCheck.textContent = 'No updates';
-        // Keep the menu open so the result is visible.
-        setTimeout(() => { updatesCheck.textContent = 'Check for updates'; }, 2200);
+        setNote("Checked just now · you're all set");
       } else {
-        updatesCheck.textContent = 'Check for updates';
+        setNote(hasStable ? 'A new version is ready' : 'A new beta is ready');
         if (hasStable) {
           downloadWhich = 'stable';
           fillOffer(s, s.stableOffer);
@@ -13540,8 +14807,9 @@ function showPeopleMenu(person, x, y) {
         }
       }
     } catch (e) {
-      if (stableMeta) stableMeta.textContent = e?.message || 'Check failed';
-      updatesCheck.textContent = 'Check for updates';
+      setNote(e?.message || 'Check failed, try again');
+    } finally {
+      updatesCheck.classList.remove('spin');
     }
   });
 
@@ -13573,13 +14841,50 @@ function showPeopleMenu(person, x, y) {
     window.nebula.downloadUpdate('beta');
   });
 
+  const aboutSheet = document.getElementById('updates-about');
+  function showAbout(version) {
+    const b = betaListData?.betas?.find((x) => x.version === version);
+    if (!b || !aboutSheet) return;
+    const v = umParse(b.version);
+    um('updates-about-name').textContent = v.beta != null ? `Beta ${v.beta}` : b.version;
+    um('updates-about-when').textContent = [v.base, umDay(b.publishedAt)].filter(Boolean).join(' · ');
+    um('updates-about-text').textContent = b.summary || 'No notes for this build.';
+    const go = um('updates-about-go');
+    go.dataset.v = b.version;
+    go.classList.toggle('hidden', b.version === lastState?.localVersion);
+    um('updates-about-text').scrollTop = 0;
+    aboutSheet.classList.remove('hidden');
+    updatesMenu.classList.add('um-about-on');
+  }
+  const hideAbout = () => {
+    aboutSheet?.classList.add('hidden');
+    updatesMenu?.classList.remove('um-about-on');
+  };
+  document.getElementById('updates-about-back')?.addEventListener('click', hideAbout);
+  updateChip?.addEventListener('click', hideAbout);
+  const onBetaPick = (e) => {
+    const about = e.target.closest('.um-about');
+    if (about) { showAbout(about.dataset.v); return; }
+    const btn = e.target.closest('.um-beta-go');
+    if (!btn?.dataset.v) return;
+    const version = btn.dataset.v;
+    hideAbout();
+    closeMenu();
+    downloadWhich = 'beta';
+    fillOffer(lastState || {}, { version, channel: 'beta', policy: 'optional', notes: '' });
+    if (titleEl) titleEl.textContent = 'Downloading update';
+    if (subEl) subEl.textContent = 'Starting download…';
+    paintProgress(0, lastState);
+    panelMode = 'downloading';
+    showModal(true);
+    window.nebula.installBeta(version);
+  };
+  document.getElementById('updates-beta-list')?.addEventListener('click', onBetaPick);
+  aboutSheet?.addEventListener('click', onBetaPick);
+
   switchStable?.addEventListener('click', async () => {
     closeMenu();
     await window.nebula.switchToStable();
-  });
-
-  betaChip?.addEventListener('click', () => {
-    openMenu();
   });
 
   primaryBtn.addEventListener('click', async () => {
@@ -13889,7 +15194,13 @@ setTimeout(checkWhatsNew, 1500);
   try {
     const v = await window.nebula.getAppVersion();
     const tb = document.getElementById('titlebar-version');
-    if (tb) tb.textContent = 'v' + v;
+    if (tb) {
+      const m = /^(.*?)-beta\.(\d+)$/.exec(v);
+      tb.innerHTML = m
+        ? `<span class="tv-num">v${escapeHtml(m[1])}</span><span class="tv-beta">Beta ${escapeHtml(m[2])}</span>`
+        : `<span class="tv-num">v${escapeHtml(v)}</span>`;
+      tb.title = `SolarClient v${v}`;
+    }
     const ab = document.getElementById('about-version');
     if (ab) ab.textContent = v;
     document.title = `SolarClient ${v}`;

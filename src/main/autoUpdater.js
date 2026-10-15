@@ -54,6 +54,17 @@ function channelFile() {
   return path.join(app.getPath('userData'), 'update-channel.json');
 }
 
+/** The running build's version. An unpackaged dev run reports Electron's own version. */
+function localVersion() {
+  if (app.isPackaged) return app.getVersion();
+  try { return require('../../package.json').version || app.getVersion(); } catch { return app.getVersion(); }
+}
+
+/** A -beta.N build is on the beta line however it got installed (site download, setup exe, updater). */
+function localChannel() {
+  return /-beta\.\d+$/.test(localVersion()) ? 'beta' : 'stable';
+}
+
 function loadChannelMeta() {
   try {
     const j = JSON.parse(fs.readFileSync(channelFile(), 'utf8'));
@@ -108,8 +119,8 @@ let mainWin = null;
 function getUpdateState() {
   return {
     ...updateState,
-    localVersion: updateState.localVersion || app.getVersion(),
-    localChannel: channelMeta.channel,
+    localVersion: updateState.localVersion || localVersion(),
+    localChannel: localChannel(),
   };
 }
 
@@ -489,7 +500,7 @@ async function checkForUpdates({ force = false } = {}) {
 
   updateState.checking = true;
   updateState.error = null;
-  updateState.localVersion = app.getVersion();
+  updateState.localVersion = localVersion();
   updateState.popupStable = false;
   pushState();
 
@@ -501,7 +512,7 @@ async function checkForUpdates({ force = false } = {}) {
     updateState.stableLatest = stable;
     updateState.betaLatest = beta;
 
-    const local = app.getVersion();
+    const local = localVersion();
     const stableOffer = (stable && isNewerVersion(stable.version, local)) ? stable : null;
     const betaOffer = (beta && isNewerVersion(beta.version, local)) ? beta : null;
 
@@ -513,7 +524,7 @@ async function checkForUpdates({ force = false } = {}) {
     // exists for them. Beta sits one patch ahead of stable, so when beta is
     // current there is no newer stable to pull them back. Only if beta has
     // fallen behind (no betaOffer) does a mandatory stable apply to them.
-    const followBeta = channelMeta.channel === 'beta' && Boolean(betaOffer);
+    const followBeta = localChannel() === 'beta' && Boolean(betaOffer);
 
     // Preferred "available" for download default.
     updateState.available = followBeta ? betaOffer : (stableOffer || betaOffer || null);
@@ -1115,6 +1126,85 @@ function downloadAvailable(which) {
   return getUpdateState();
 }
 
+// Every released beta, newest first. The VPS feed only keeps the newest one,
+// so this reads the public GitHub releases list; each installer's SHA-256
+// comes from GitHub's asset digest and is checked like any other download.
+const BETA_LIST_TTL_MS = 10 * 60 * 1000;
+const BETA_ASSET_URL = /^https:\/\/github\.com\/sharktoothgaming56-maker\/solarclientsite\/releases\/download\//;
+let betaList = { at: 0, items: [] };
+
+async function listBetas({ force = false } = {}) {
+  if (IS_LINUX) return [];
+  if (!force && betaList.items.length && Date.now() - betaList.at < BETA_LIST_TTL_MS) return betaList.items;
+  const releases = await httpGetJson('https://api.github.com/repos/sharktoothgaming56-maker/solarclientsite/releases?per_page=100');
+  const items = [];
+  for (const r of Array.isArray(releases) ? releases : []) {
+    const version = String(r.tag_name || '').replace(/^v/i, '');
+    if (!r.prerelease || r.draft || !/^\d+\.\d+\.\d+-beta\.\d+$/.test(version)) continue;
+    const asset = (r.assets || []).find((a) => a.name === `SolarClient-Setup-${version}.exe`);
+    const sha = /^sha256:([0-9a-f]{64})$/i.exec(String(asset?.digest || ''));
+    if (!asset || !sha || !BETA_ASSET_URL.test(String(asset.browser_download_url || ''))) continue;
+    items.push({
+      version,
+      channel: 'beta',
+      policy: 'optional',
+      notes: String(r.body || '').slice(0, 4000),
+      sha256: sha[1].toLowerCase(),
+      size: Number(asset.size) || 0,
+      url: asset.browser_download_url,
+      publishedAt: r.published_at || null,
+    });
+  }
+  items.sort((a, b) => (isNewerVersion(a.version, b.version) ? -1 : 1));
+  betaList = { at: Date.now(), items };
+  return items;
+}
+
+// The release's own words about what changed: the notes minus the boilerplate
+// (beta banner, SHA-256, VirusTotal reminder) and markdown.
+function betaSummary(notes) {
+  return String(notes || '').split(/\r?\n\s*\r?\n/).map((p) => p.trim())
+    .filter((p) => p && !/^(\*\*beta\*\*|sha-?256|submit the exe|virustotal)/i.test(p))
+    .map((p) => p.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*`#>]/g, '')
+      .split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n'))
+    .join('\n\n').slice(0, 3000);
+}
+
+async function getBetaList(force) {
+  try {
+    const items = await listBetas({ force: Boolean(force) });
+    return { ok: true, current: localVersion(), betas: items.map(({ version, size, publishedAt, notes }) => ({ version, size, publishedAt, summary: betaSummary(notes) })) };
+  } catch (err) {
+    const latest = updateState.betaLatest;
+    return {
+      ok: false,
+      error: err?.message || String(err),
+      current: localVersion(),
+      betas: latest ? [{ version: latest.version, size: latest.size || 0, publishedAt: null }] : [],
+    };
+  }
+}
+
+async function installBeta(version) {
+  const want = String(version || '').replace(/^v/i, '');
+  let entry = betaList.items.find((b) => b.version === want);
+  if (!entry) {
+    try { entry = (await listBetas({ force: true })).find((b) => b.version === want); } catch { /* fall through */ }
+  }
+  if (!entry && updateState.betaLatest?.version === want) entry = updateState.betaLatest;
+  if (!entry) {
+    updateState.error = `Beta v${want} isn't available.`;
+    pushState();
+    return getUpdateState();
+  }
+  startDownload({ ...entry, channel: 'beta' }).catch((err) => {
+    updateState.downloading = false;
+    updateState.error = err?.message || String(err);
+    pushState();
+  });
+  return getUpdateState();
+}
+
 async function switchToStable() {
   const stable = updateState.stableLatest;
   if (!stable) {
@@ -1126,7 +1216,7 @@ async function switchToStable() {
     pushState();
     return getUpdateState();
   }
-  if (!isNewerVersion(target.version, app.getVersion()) && channelMeta.channel !== 'beta') {
+  if (!isNewerVersion(target.version, localVersion()) && localChannel() !== 'beta') {
     updateState.error = 'You are already on the latest stable.';
     pushState();
     return getUpdateState();
@@ -1142,8 +1232,8 @@ async function switchToStable() {
 function initAutoUpdate(mainWindow) {
   mainWin = mainWindow;
   channelMeta = loadChannelMeta();
-  updateState.localVersion = app.getVersion();
-  updateState.localChannel = channelMeta.channel;
+  updateState.localVersion = localVersion();
+  updateState.localChannel = localChannel();
 
   try { ipcMain.removeHandler('update:check'); } catch { /* ok */ }
   try { ipcMain.removeHandler('update:restart'); } catch { /* ok */ }
@@ -1151,12 +1241,16 @@ function initAutoUpdate(mainWindow) {
   try { ipcMain.removeHandler('update:dismiss'); } catch { /* ok */ }
   try { ipcMain.removeHandler('update:switchStable'); } catch { /* ok */ }
   try { ipcMain.removeHandler('update:getState'); } catch { /* ok */ }
+  try { ipcMain.removeHandler('update:listBetas'); } catch { /* ok */ }
+  try { ipcMain.removeHandler('update:installBeta'); } catch { /* ok */ }
 
   ipcMain.handle('update:getState', () => getUpdateState());
   ipcMain.handle('update:check', () => checkForUpdates({ force: true }));
   ipcMain.handle('update:download', (_e, which) => downloadAvailable(which));
   ipcMain.handle('update:dismiss', () => dismissOptional());
   ipcMain.handle('update:switchStable', () => switchToStable());
+  ipcMain.handle('update:listBetas', (_e, force) => getBetaList(force));
+  ipcMain.handle('update:installBeta', (_e, version) => installBeta(version));
   ipcMain.handle('update:restart', async () => runInstallAndRelaunch());
 
   setTimeout(() => checkForUpdates(), 4000);
