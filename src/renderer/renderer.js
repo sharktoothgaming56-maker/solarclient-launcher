@@ -290,7 +290,7 @@ function ensureBackgrounds() {
     if (!running) return;
     timer = setTimeout(tick, 100);
 
-    if (!layerA) return;
+    if (!layerA || document.body.classList.contains('skin-grabbing')) return;
     ctx.clearRect(0, 0, w, h);
 
     if (theme.animations) {
@@ -408,6 +408,7 @@ function ensureBackgrounds() {
   function next() {
     timer = 0;
     if (!wanted()) return;
+    if (document.body.classList.contains('skin-grabbing')) { timer = setTimeout(next, 800); return; }
     const r = Math.random();
     if (r < 0.08) {
       // Shower: a handful from the same patch of sky, a beat apart.
@@ -6564,7 +6565,7 @@ function paintLaunchArt() {
 
   const sel = document.getElementById('launch-instance-select');
   const [, version, loader] = (sel?.value || '').split('|');
-  if (!version) {
+  if (!version || betaLayoutOn()) {
     art.style.backgroundImage = '';
     stars.style.backgroundImage = '';
     const wmOff = document.getElementById('bg-version-watermark');
@@ -10722,7 +10723,7 @@ function resetParallax() {
 }
 let pxRaf = null, pxX = 0, pxY = 0;
 document.addEventListener('mousemove', (e) => {
-  if (!theme.parallax || !theme.animations) return;
+  if (!theme.parallax || !theme.animations || document.body.classList.contains('skin-grabbing')) return;
   pxX = e.clientX / window.innerWidth - 0.5;
   pxY = e.clientY / window.innerHeight - 0.5;
   if (pxRaf) return;

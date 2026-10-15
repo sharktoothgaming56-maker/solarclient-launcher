@@ -172,6 +172,7 @@
       if (this.paintMode) return;   // the editor handles the pointer itself
       this.dragging = true; this.beginInteraction();
       lx = x; ly = y; c.classList.add('grabbing');
+      document.body.classList.add('skin-grabbing');
     };
     const move = (x, y) => {
       if (!this.dragging) return;
@@ -183,10 +184,12 @@
     const up = () => {
       if (!this.dragging) return;
       this.dragging = false; this.endInteraction(); c.classList.remove('grabbing');
+      document.body.classList.remove('skin-grabbing');
     };
     c.addEventListener('mousedown', (e) => { if (e.button !== 0) return; e.preventDefault(); down(e.clientX, e.clientY); });
     window.addEventListener('mousemove', (e) => move(e.clientX, e.clientY));
     window.addEventListener('mouseup', up);
+    window.addEventListener('blur', up);
     c.addEventListener('touchstart', (e) => down(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
     c.addEventListener('touchmove', (e) => move(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
     c.addEventListener('touchend', up);
