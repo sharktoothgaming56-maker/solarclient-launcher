@@ -3840,6 +3840,104 @@ ipcMain.handle('launch:start', async (_e, args) => {
   }
 });
 
+// The mods that actually raise frame rate. Installed at launch when missing.
+// Video settings are left alone — this only drops jars into the mods folder.
+const FPS_LAUNCH_MODS = {
+  fabric: [
+    { slug: 'fabric-api', title: 'Fabric API' },
+    { slug: 'sodium', title: 'Sodium' },
+    { slug: 'lithium', title: 'Lithium' },
+    { slug: 'entityculling', title: 'Entity Culling' },
+    { slug: 'immediatelyfast', title: 'ImmediatelyFast' },
+  ],
+  quilt: [
+    { slug: 'qsl', title: 'QFAPI' },
+    { slug: 'sodium', title: 'Sodium' },
+    { slug: 'lithium', title: 'Lithium' },
+    { slug: 'entityculling', title: 'Entity Culling' },
+    { slug: 'immediatelyfast', title: 'ImmediatelyFast' },
+  ],
+  forge: [
+    { slug: 'embeddium', title: 'Embeddium' },
+    { slug: 'radium', title: 'Radium' },
+    { slug: 'entityculling', title: 'Entity Culling' },
+    { slug: 'immediatelyfast', title: 'ImmediatelyFast' },
+  ],
+};
+
+function fpsModPresent(modsDir, slug) {
+  const manifest = readModManifest(modsDir);
+  const needle = slug.toLowerCase().replace(/-/g, '');
+  for (const [file, meta] of Object.entries(manifest)) {
+    if (!fs.existsSync(path.join(modsDir, file))) continue;
+    const id = String(meta.slug || meta.projectId || '').toLowerCase().replace(/-/g, '');
+    if (id === needle) return true;
+  }
+  let names = [];
+  try { names = fs.readdirSync(modsDir); } catch { return false; }
+  return names.some((n) => n.endsWith('.jar') && n.toLowerCase().replace(/-/g, '').includes(needle));
+}
+
+async function ensureFpsMods(dir, versionNumber, loader, onOne) {
+  const pack = FPS_LAUNCH_MODS[loader];
+  if (!pack || !versionNumber) return;
+  const modsDir = path.join(dir, 'mods');
+  fs.mkdirSync(modsDir, { recursive: true });
+  for (const mod of pack) {
+    if (fpsModPresent(modsDir, mod.slug)) continue;
+    onOne?.(mod.title);
+    const params = new URLSearchParams();
+    params.set('game_versions', JSON.stringify([versionNumber]));
+    params.set('loaders', JSON.stringify([loader]));
+    const res = await chromeFetch(`https://api.modrinth.com/v2/project/${encodeURIComponent(mod.slug)}/version?${params}`);
+    if (!res.ok) continue;
+    const versions = await res.json();
+    const pick = versions.find((v) => v.version_type === 'release') || versions[0];
+    const file = pick && (pick.files.find((f) => f.primary) || pick.files[0]);
+    if (!file?.url || !file.filename) continue;
+    const got = await chromeFetch(file.url);
+    if (!got.ok) continue;
+    const finalPath = path.join(modsDir, file.filename);
+    const partPath = `${finalPath}.part`;
+    const out = fs.createWriteStream(partPath);
+    const reader = got.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!out.write(Buffer.from(value))) await new Promise((r) => out.once('drain', r));
+      }
+      await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
+      fs.renameSync(partPath, finalPath);
+    } catch (err) {
+      out.destroy();
+      fs.rmSync(partPath, { force: true });
+      throw err;
+    }
+    const manifest = readModManifest(modsDir);
+    manifest[file.filename] = { projectId: pick.project_id || mod.slug, slug: mod.slug, title: mod.title, iconUrl: '' };
+    writeModManifest(modsDir, manifest);
+  }
+}
+
+// Windows picks the integrated GPU for javaw unless this exe is marked
+// high-performance. GpuPreference=2 is the discrete adapter. No game setting.
+function preferDiscreteGpu(exePath) {
+  if (process.platform !== 'win32' || !exePath || !fs.existsSync(exePath)) return;
+  const { execFileSync } = require('child_process');
+  const key = 'HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences';
+  let current = '';
+  try {
+    const out = execFileSync('reg', ['query', key, '/v', exePath], { encoding: 'utf8', windowsHide: true });
+    const m = /REG_SZ\s+(\S.*)$/m.exec(out);
+    current = m ? m[1].trim() : '';
+  } catch { /* value not set yet */ }
+  const data = /GpuPreference=\d/.test(current)
+    ? current.replace(/GpuPreference=\d/, 'GpuPreference=2')
+    : `${current.replace(/;?\s*$/, '')}${current ? ';' : ''}GpuPreference=2;`;
+  execFileSync('reg', ['add', key, '/v', exePath, '/t', 'REG_SZ', '/d', data, '/f'], { windowsHide: true });
+}
+
 async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memoryMinGB, accountId, performanceMode, joinServer, preload = false, fastLaunch = false, onLaunchId = null }) {
   const account = getAccounts().find(a => a.id === (accountId || store.get('activeAccountId')));
   if (!account) throw new Error('Not signed in.');
@@ -3865,6 +3963,14 @@ async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memo
     // startPlaytimeTicker as minutes are genuinely spent in game.
 
     setPresence({ kind: 'launching', edition: 'java', since: Date.now(), instanceName, versionNumber });
+  }
+
+  if (!preload && loader && loader !== 'vanilla') {
+    try {
+      await ensureFpsMods(dir, versionNumber, loader, (title) => send(`Installing ${title}…`, 2));
+    } catch (err) {
+      emitLog(launchId, `[SolarClient] FPS mods: ${err.message}`, 'debug');
+    }
   }
 
   // Make sure SolarClient's bundled resource pack is sitting in this
@@ -4164,6 +4270,9 @@ async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memo
   });
 
   entry.launcher = launcher;
+  try { preferDiscreteGpu(javaPath); } catch (err) {
+    emitLog(launchId, `[SolarClient] GPU preference: ${err.message}`, 'debug');
+  }
   send('Igniting engines…', 96);
 
   let child;
