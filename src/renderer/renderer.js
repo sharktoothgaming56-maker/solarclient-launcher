@@ -9610,11 +9610,12 @@ setTimeout(() => refreshOnlineIndicator(), 800);
   let view = 'all';
   let sel = -1;
   const isOpen = () => !pop.classList.contains('hidden');
-  const ROLE_ORDER = ['owner', 'admin', 'verified', 'solar+'];
-  const ROLE_GROUP = { owner: 'Owners', admin: 'Admins', verified: 'Verified', 'solar+': 'Solar+' };
+  const ROLE_ORDER = ['owner', 'admin', 'manager', 'verified', 'solar+'];
+  const ROLE_GROUP = { owner: 'Owners', admin: 'Admins', manager: 'Managers', verified: 'Verified', 'solar+': 'Solar+' };
   const ROLE_ICON = {
     owner: '<path d="M3 7l4.5 3.5L12 4l4.5 6.5L21 7l-2 11H5L3 7zm2.3 13h13.4v2H5.3v-2z"/>',
     admin: '<path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/>',
+    manager: '<path d="M12 3a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM8.2 12.4 6.5 21l5.5-3 5.5 3-1.7-8.6"/>',
     verified: '<path d="M23 12l-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12zm-12.91 4.72-3.8-3.81 1.48-1.48 2.32 2.33 5.85-5.87 1.48 1.48-7.33 7.35z"/>',
     'solar+': '<path d="M12 2l2.6 6.9L22 9.3l-5.7 4.6 1.9 7.1L12 17l-6.2 4 1.9-7.1L2 9.3l7.4-.4z"/>',
   };
@@ -13921,6 +13922,7 @@ function showPeopleMenu(person, x, y) {
   const ROLE_SVG = {
     owner: '<path d="M3 7l4.5 3.5L12 4l4.5 6.5L21 7l-2 11H5L3 7zm2.3 13h13.4v2H5.3v-2z"/>',
     admin: '<path d="M12 2 4 5v6c0 5.25 3.4 10.1 8 11 4.6-.9 8-5.75 8-11V5l-8-3z"/>',
+    manager: '<path d="M12 3a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM8.2 12.4 6.5 21l5.5-3 5.5 3-1.7-8.6"/>',
     verified: '<path d="M23 12l-2.44-2.79.34-3.69-3.61-.82-1.89-3.2L12 2.96 8.6 1.5 6.71 4.69 3.1 5.5l.34 3.7L1 12l2.44 2.79-.34 3.7 3.61.82L8.6 22.5l3.4-1.47 3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12zm-12.91 4.72-3.8-3.81 1.48-1.48 2.32 2.33 5.85-5.87 1.48 1.48-7.33 7.35z"/>',
     'solar+': '<path d="M12 2l2.6 6.9L22 9.3l-5.7 4.6 1.9 7.1L12 17l-6.2 4 1.9-7.1L2 9.3l7.4-.4z"/>',
   };
