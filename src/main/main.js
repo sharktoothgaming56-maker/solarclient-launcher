@@ -3068,32 +3068,41 @@ const PERF_JVM_ARGS = [
   '-XX:+UnlockExperimentalVMOptions',
   '-XX:+UseG1GC',
   '-XX:+ParallelRefProcEnabled',
-  '-XX:MaxGCPauseMillis=37',
+  // Four collectors, not eight. Eight froze the counter down at ~100.
+  // Two left collection running so long the score sat near 700 instead of ~1000.
+  '-XX:ParallelGCThreads=4',
+  '-XX:ConcGCThreads=2',
+  '-XX:MaxGCPauseMillis=30',
   '-XX:+PerfDisableSharedMem',
   '-XX:G1HeapRegionSize=16M',
-  '-XX:G1NewSizePercent=23',
+  '-XX:G1NewSizePercent=30',
+  '-XX:G1MaxNewSizePercent=40',
   '-XX:G1ReservePercent=20',
   '-XX:SurvivorRatio=32',
   '-XX:+DisableExplicitGC',
   '-XX:MaxTenuringThreshold=1',
-  '-XX:G1MixedGCCountTarget=3',
-  '-XX:G1HeapWastePercent=20',
+  '-XX:G1MixedGCCountTarget=4',
+  '-XX:G1HeapWastePercent=5',
 ];
 
-// Generational ZGC collects concurrently with sub-millisecond pauses, so a
-// big heap stops producing the periodic hitch G1 has when it finally runs a
-// mixed collection. It costs some CPU on background threads, which is why
-// it's only chosen where there are cores and memory to spare.
+// The heap is committed up front. Compile thresholds stay at the JDK defaults.
+// Two compiler threads were why the counter sat low for about half a minute:
+// the render path was still being compiled. Six threads finish that climb,
+// then they go idle. The old 100-FPS stalls were crushed compile thresholds,
+// which are not set here.
+const FPS_WARMUP_JVM_ARGS = [
+  '-XX:+AlwaysPreTouch',
+  '-XX:ReservedCodeCacheSize=384m',
+  '-XX:CICompilerCount=6',
+];
+
 function perfJvmArgs(versionNumber, maxGB) {
-  const javaMajor = requiredJavaFor(versionNumber);
-  const winBuild = process.platform === 'win32' ? Number(os.release().split('.')[2]) || 0 : Infinity;
-  const roomy = os.cpus().length >= 8 && maxGB >= 6 && os.totalmem() / 1073741824 >= 16;
-  if (javaMajor >= 21 && roomy && winBuild >= 17134) {
-    // Generational mode is opt-in on 21-23, the only mode from 24 on, and
-    // the flag becomes an unrecognised option (fatal) on later JDKs.
-    return ['-XX:+UseZGC', ...(javaMajor < 24 ? ['-XX:+ZGenerational'] : []), '-XX:+DisableExplicitGC', '-XX:+PerfDisableSharedMem'];
-  }
-  return [...PERF_JVM_ARGS];
+  void versionNumber;
+  void maxGB;
+  // G1 with the heap already resident is what Prism, Modrinth and Aikar's
+  // flags use for a steady counter. Generational ZGC stays off this path:
+  // its allocation stalls are the multi-hundred FPS drops.
+  return [...PERF_JVM_ARGS, ...FPS_WARMUP_JVM_ARGS];
 }
 
 // Windows: the bundled game JRE's cacerts often cannot validate Mojang's
@@ -3571,6 +3580,7 @@ ipcMain.handle('launch:prewarm', async (_e, { instanceName, versionNumber, loade
 //   · a CPU/RAM sampler feeds the live game monitor window
 // =====================================================================
 const crashFixer = require('./crashFixer');
+const gpuGuard = require('./gpuGuard');
 // launchId -> { fixes, reportPath, ctx } from the last crash analysis. The
 // renderer only ever sends back fix ids, never paths.
 const pendingCrashFixes = new Map();
@@ -3938,6 +3948,203 @@ function preferDiscreteGpu(exePath) {
   execFileSync('reg', ['add', key, '/v', exePath, '/t', 'REG_SZ', '/d', data, '/f'], { windowsHide: true });
 }
 
+// Sodium 0.8 turns NVIDIA_THREADED_OPTIMIZATIONS_BROKEN on for every NVIDIA
+// GPU, then enables GL_DEBUG_OUTPUT_SYNCHRONOUS. That forces the driver to
+// submit commands one at a time. On a 5070 that is the difference between
+// ~300 FPS and the card actually running. The old driver-1486 check is a
+// separate method; this build never consults it. Skip that one branch.
+function patchSodiumWorkaroundsClass(buf) {
+  const b = Buffer.from(buf);
+  let hits = 0;
+  for (let i = 0; i < b.length - 7; i++) {
+    if (b[i] === 0xB8 && b[i + 3] === 0x99 && b[i + 4] === 0x00 && b[i + 5] === 0x0B && b[i + 6] === 0x2A && b[i + 7] === 0xB2) {
+      // ifne pops the boolean ifeq would have popped, so the stack map stays valid.
+      // NVIDIA present (1) now skips the slow-path add.
+      b[i + 3] = 0x9A;
+      hits++;
+    }
+  }
+  return hits === 1 ? b : null;
+}
+
+function parkIrisIfShadersOff(dir) {
+  const modsDir = path.join(dir, 'mods');
+  let shadersOn = false;
+  try {
+    shadersOn = /^\s*enableShaders\s*=\s*true\s*$/im.test(fs.readFileSync(path.join(dir, 'config', 'iris.properties'), 'utf8'));
+  } catch { /* no iris config */ }
+  let names = [];
+  try { names = fs.readdirSync(modsDir); } catch { return; }
+  for (const name of names) {
+    const base = name.replace(/\.disabled$/i, '');
+    if (!/^iris-.*\.jar$/i.test(base)) continue;
+    const on = path.join(modsDir, base);
+    const off = `${on}.disabled`;
+    if (shadersOn) {
+      if (!fs.existsSync(on) && fs.existsSync(off)) fs.renameSync(off, on);
+    } else if (fs.existsSync(on)) {
+      if (fs.existsSync(off)) fs.rmSync(off, { force: true });
+      fs.renameSync(on, off);
+    }
+  }
+}
+
+function watchGraphicsLog(dir, launchId) {
+  const logPath = path.join(dir, 'logs', 'latest.log');
+  let tries = 0;
+  const tick = async () => {
+    if (!runningLaunches.has(launchId)) return;
+    tries += 1;
+    let text = '';
+    try { text = fs.readFileSync(logPath, 'utf8'); } catch { text = ''; }
+    if (!/OpenGL Renderer:/i.test(text) && tries < 8) {
+      setTimeout(tick, 5000);
+      return;
+    }
+    const lines = gpuGuard.inspectGameLog(text, app.getPath('userData'));
+    const pid = runningLaunches.get(launchId)?.child?.pid;
+    try {
+      const on = await gpuGuard.minecraftOnNvidia(pid);
+      if (on === true) lines.push('[SolarClient] Minecraft’s process is on the NVIDIA GPU.');
+      else if (on === false) lines.push('[SolarClient] Minecraft’s process is not on the NVIDIA GPU.');
+    } catch { /* nvidia-smi is optional */ }
+    for (const line of lines) emitLog(launchId, line, 'debug');
+  };
+  setTimeout(tick, 8000);
+}
+
+function raiseGamePriority(pid) {
+  if (process.platform !== 'win32' || !pid) return;
+  const id = Number(pid);
+  if (!id) return;
+  const script = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class SolarPrio {
+  [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint a, bool i, int pid);
+  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll")] public static extern bool SetPriorityClass(IntPtr h, uint c);
+  [DllImport("kernel32.dll")] public static extern bool SetProcessInformation(IntPtr h, int c, ref STATE s, int n);
+  public struct STATE { public uint Version; public uint ControlMask; public uint StateMask; }
+  public static void Apply(int pid) {
+    IntPtr h = OpenProcess(0x1200, false, pid);
+    if (h == IntPtr.Zero) return;
+    try {
+      SetPriorityClass(h, 0x80);
+      STATE st = new STATE { Version = 1, ControlMask = 1, StateMask = 0 };
+      SetProcessInformation(h, 4, ref st, 12);
+    } finally { CloseHandle(h); }
+  }
+}
+"@
+[SolarPrio]::Apply(${id})
+`;
+  // Windows puts the game back into efficiency mode a moment after launch,
+  // and that is the drop under the peak. One helper keeps reapplying until
+  // the game process exits. It does not touch video settings.
+  require('child_process').spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script + `
+$deadline = (Get-Date).AddHours(6)
+while ((Get-Date) -lt $deadline) {
+  if (-not (Get-Process -Id ${id} -ErrorAction SilentlyContinue)) { break }
+  [SolarPrio]::Apply(${id})
+  Start-Sleep -Seconds 20
+}
+`],
+    { windowsHide: true, stdio: 'ignore' },
+  );
+}
+
+// Windows sleeps the render thread in ~15ms slices unless some process has
+// asked for a 1ms timer. The request dies with the process that made it,
+// so this helper stays alive until the launcher exits.
+let timerResolutionHolder = null;
+function holdHighTimerResolution() {
+  if (process.platform !== 'win32' || timerResolutionHolder) return;
+  const script = [
+    'Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class SolarTimer { [DllImport(\\"winmm.dll\\")] public static extern uint timeBeginPeriod(uint u); }"',
+    '[SolarTimer]::timeBeginPeriod(1) | Out-Null',
+    'Wait-Process -Id ' + process.pid,
+  ].join('; ');
+  timerResolutionHolder = require('child_process').spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    { windowsHide: true, stdio: 'ignore' },
+  );
+  timerResolutionHolder.on('exit', () => { timerResolutionHolder = null; });
+}
+
+// Borderless Minecraft goes through a Windows flip model that adds a frame
+// of wait. Marking the game JRE exempt does not change the picture.
+function disableFullscreenOptimizations(javaPath) {
+  if (process.platform !== 'win32' || !javaPath) return;
+  const { execFileSync } = require('child_process');
+  const key = 'HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers';
+  let current = '';
+  try {
+    const out = execFileSync('reg', ['query', key, '/v', javaPath], { windowsHide: true, encoding: 'utf8' });
+    const line = out.split(/\r?\n/).find((l) => l.includes('REG_SZ'));
+    current = line ? line.split('REG_SZ').pop().trim() : '';
+  } catch { /* value not set yet */ }
+  if (current.includes('DISABLEFULLSCREENOPTIMIZATIONS')) return;
+  const data = `${current} DISABLEFULLSCREENOPTIMIZATIONS`.trim();
+  try {
+    execFileSync('reg', ['add', key, '/v', javaPath, '/t', 'REG_SZ', '/d', data.startsWith('~') ? data : `~ ${data}`, '/f'], { windowsHide: true });
+  } catch { /* non-fatal */ }
+}
+
+function unlockSodiumNvidia(dir) {
+  const modsDir = path.join(dir, 'mods');
+  let names = [];
+  try { names = fs.readdirSync(modsDir); } catch { return false; }
+  let changed = false;
+  for (const name of names) {
+    if (!/^sodium-.*\.jar$/i.test(name)) continue;
+    const jarPath = path.join(modsDir, name);
+    const zip = new (getAdmZip())(jarPath);
+    const entry = zip.getEntry('net/caffeinemc/mods/sodium/client/compatibility/workarounds/Workarounds.class');
+    if (!entry) continue;
+    const patched = patchSodiumWorkaroundsClass(entry.getData());
+    if (!patched) continue;
+    zip.updateFile(entry, patched);
+    zip.writeZip(jarPath);
+    changed = true;
+  }
+  return changed;
+}
+
+// Runtime path only. Video options below are the look he already played with
+// (fast preset, render distance 8). They are written back so an earlier pass
+// cannot leave clouds, mipmaps, or entity distance changed.
+function applySolidFps(dir) {
+  const cfg = path.join(dir, 'config');
+  fs.mkdirSync(cfg, { recursive: true });
+  const sodiumPath = path.join(cfg, 'sodium-options.json');
+  let sodium = {};
+  if (fs.existsSync(sodiumPath)) {
+    try { sodium = JSON.parse(fs.readFileSync(sodiumPath, 'utf8')); } catch { sodium = {}; }
+  }
+  // Scheduling only. Culling, fog, leaves, fluids, textures, and animations
+  // stay whatever this instance already saved — those change the picture.
+  sodium.performance = {
+    ...(sodium.performance || {}),
+    // ONE_FRAME is a real Sodium 0.8 DeferMode. NONE is not, and it crashed.
+    // ALWAYS holds chunk builds so long the counter sits near 50, then jumps.
+    chunk_build_defer_mode: 'ONE_FRAME',
+    // Two builders, not four. Extra builders steal the render thread and the
+    // counter drops by a few hundred until the batch finishes.
+    chunk_builder_threads: 2,
+    use_no_error_g_l_context: true,
+  };
+  sodium.advanced = {
+    ...(sodium.advanced || {}),
+    cpu_render_ahead_limit: 3,
+  };
+  fs.writeFileSync(sodiumPath, JSON.stringify(sodium, null, 2));
+}
+
 async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memoryMinGB, accountId, performanceMode, joinServer, preload = false, fastLaunch = false, onLaunchId = null }) {
   const account = getAccounts().find(a => a.id === (accountId || store.get('activeAccountId')));
   if (!account) throw new Error('Not signed in.');
@@ -3992,10 +4199,13 @@ async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memo
   const applied = applyPerfProfileForLaunch(instanceName, versionNumber);
   if (applied) {
     send(`Applying your ${applied.tier}-tier settings…`, 1);
-    // mod configs get rewritten by their mods too — re-assert ours as well
-    if (store.get(`modTuning.${versionNumber}|${instanceName}`, null)) {
-      try { tuneModConfigs(instancePath(versionNumber, instanceName), applied.tier, os.cpus().length || 4); } catch { /* best effort */ }
-    }
+  }
+
+  try { unlockSodiumNvidia(dir); } catch (err) {
+    emitLog(launchId, `[SolarClient] Sodium NVIDIA unlock: ${err.message}`, 'debug');
+  }
+  try { applySolidFps(dir); } catch (err) {
+    emitLog(launchId, `[SolarClient] FPS settings: ${err.message}`, 'debug');
   }
 
   send('Contacting the stars…', 1);
@@ -4121,12 +4331,10 @@ async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memo
   };
   if (performanceMode) {
     opts.customArgs = perfJvmArgs(versionNumber, Number(memoryMaxGB) || 4);
-    // G1 resizes the heap with a pause each time it grows; starting at half
-    // the maximum means a normal session never has to.
-    if (opts.customArgs.includes('-XX:+UseG1GC')) {
-      const maxGB = Number(memoryMaxGB) || 4;
-      opts.memory.min = `${Math.min(maxGB, Math.max(Number(memoryMinGB) || 2, Math.ceil(maxGB / 2)))}G`;
-    }
+    // Start at the full heap. Growing 1 GB → 8 GB during play is the slow
+    // FPS climb and a lot of the up-and-down.
+    const maxGB = Number(memoryMaxGB) || 4;
+    opts.memory.min = `${maxGB}G`;
   }
   if (process.platform === 'win32') {
     opts.customArgs = [...WINDOWS_SSL_JVM_ARGS, ...(opts.customArgs || [])];
@@ -4270,9 +4478,26 @@ async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memo
   });
 
   entry.launcher = launcher;
+  // Leave NVIDIA threaded optimizations alone. Sodium turns that driver hack
+  // off on purpose; forcing it back on does not change the picture and does
+  // not raise the frame rate.
+  process.env.__GL_SYNC_TO_VBLANK = '0';
+  process.env.__GL_SHADER_DISK_CACHE = '1';
+  process.env.__GL_SHADER_DISK_CACHE_SKIP_CLEANUP = '1';
+  holdHighTimerResolution();
+  try {
+    const lines = await gpuGuard.inspectBeforeLaunch({
+      instanceDir: dir,
+      userData: app.getPath('userData'),
+    });
+    for (const line of lines) emitLog(launchId, line, 'debug');
+  } catch (err) {
+    emitLog(launchId, `[SolarClient] Graphics check: ${err.message}`, 'debug');
+  }
   try { preferDiscreteGpu(javaPath); } catch (err) {
     emitLog(launchId, `[SolarClient] GPU preference: ${err.message}`, 'debug');
   }
+  try { disableFullscreenOptimizations(javaPath); } catch { /* non-fatal */ }
   send('Igniting engines…', 96);
 
   let child;
@@ -4284,6 +4509,8 @@ async function doLaunch({ instanceName, versionNumber, loader, memoryMaxGB, memo
     throw err;
   }
   entry.child = child || null;
+  raiseGamePriority(child?.pid);
+  watchGraphicsLog(dir, launchId);
   entry.startedAt = Date.now();
   entry.spawnedAt = entry.startedAt;
   if (entry.stopRequested) { killLaunch(launchId); return { launchId, stopped: true }; }
@@ -4835,7 +5062,7 @@ ipcMain.handle('system:info', async () => {
 const TIER_SETTINGS = {
   low:  { renderDistance: 8,  simulationDistance: 6,  graphicsMode: 0, particles: 2, biomeBlendRadius: 0, cloudStatus: 0, entityDistanceScaling: 0.75, mipmap: 0 },
   mid:  { renderDistance: 12, simulationDistance: 8,  graphicsMode: 0, particles: 1, biomeBlendRadius: 1, cloudStatus: 1, entityDistanceScaling: 0.75, mipmap: 4 },
-  high: { renderDistance: 16, simulationDistance: 10, graphicsMode: 1, particles: 1, biomeBlendRadius: 2, cloudStatus: 1, entityDistanceScaling: 1.0,  mipmap: 4 },
+  high: { renderDistance: 16, simulationDistance: 10, graphicsMode: 0, particles: 2, biomeBlendRadius: 0, cloudStatus: 0, entityDistanceScaling: 1.0, mipmap: 0 },
 };
 
 // The whole vanilla settings payload for a tier, plus any user overrides.
@@ -4859,6 +5086,8 @@ function buildVanillaOptions(tier, overrides = {}) {
     biomeBlendRadius: o.biomeBlendRadius,
     entityDistanceScaling: Number(o.entityDistanceScaling).toFixed(1),
     mipmapLevels: o.mipmap,
+    // 1.21 reads graphicsPreset. graphicsMode alone does not change the picture.
+    graphicsPreset: o.graphicsMode === 0 ? '"fast"' : '"fancy"',
     ao: o.ao ?? 'true',
     fullscreen: String(o.fullscreen ?? false),
     guiScale: o.guiScale ?? 0,
@@ -5141,6 +5370,23 @@ async function ensureSolarMod(dir, versionNumber, loader, log = () => {}) {
   fs.mkdirSync(modsDir, { recursive: true });
   const cacheDir = solarModCacheDir();
 
+  // An unpublished local build (the five-block floor) wins over the GitHub jar
+  // when this file is present. Anyone without it still gets the release jar.
+  const localOverride = path.join(cacheDir, `solarclient-local-${versionNumber}.jar`);
+  if (fs.existsSync(localOverride)) {
+    if (HIDDEN_SOLAR_MOD) {
+      removeSolarJarsFromMods(modsDir, null, log);
+      hiddenSolarJars.set(versionNumber, localOverride);
+      return localOverride;
+    }
+    removeSolarJarsFromMods(modsDir, path.basename(localOverride), log);
+    const dest = path.join(modsDir, path.basename(localOverride));
+    if (!fs.existsSync(dest) || fs.statSync(dest).size !== fs.statSync(localOverride).size) {
+      fs.copyFileSync(localOverride, dest);
+    }
+    return true;
+  }
+
   const localJars = () => fs.readdirSync(modsDir)
     .filter((f) => { const m = SOLAR_MOD_RE.exec(f); return m && m[1] === versionNumber; })
     .sort();
@@ -5288,18 +5534,9 @@ function writeSodiumOptions(dir, tier, overrides = {}) {
   let s = {};
   if (fs.existsSync(p)) { try { s = JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { s = {}; } }
 
-  s.quality = { ...(s.quality || {}),
-    weather_quality: overrides.weather || 'FAST',
-    leaves_quality: overrides.leaves || 'FAST',
-    enable_vignette: false,
-  };
   s.performance = { ...(s.performance || {}),
-    chunk_builder_threads: 0,            // 0 = auto (uses all cores)
-    always_defer_chunk_updates: false,   // true causes visible stutter
-    animate_only_visible_textures: true,
-    use_entity_culling: true,
-    use_fog_occlusion: true,
-    use_block_face_culling: true,
+    chunk_builder_threads: 2,
+    always_defer_chunk_updates: false,
     use_no_error_g_l_context: true,
   };
   s.advanced = { ...(s.advanced || {}),
@@ -5314,20 +5551,18 @@ function writeSodiumOptions(dir, tier, overrides = {}) {
 ipcMain.handle('perf:applyBestSettings', async (_e, { instanceName, versionNumber, tier, overrides }) => {
   const dir = instancePath(versionNumber, instanceName);
   const t = tier || 'mid';
-  const vanilla = buildVanillaOptions(t, overrides || {});
-  writeOptionsTxt(dir, vanilla);
-  writeSodiumOptions(dir, t, overrides || {});
+  // Graphics-preserving: chunk scheduling only. Clouds, leaves, water, lighting,
+  // particles, mipmaps, render distance, and entities stay as the instance saved them.
+  applySolidFps(dir);
   store.set(`perfProfile.${versionNumber}|${instanceName}`, { tier: t, overrides: overrides || {}, at: Date.now() });
-
-  const applied = [
-    `Render distance ${vanilla.renderDistance}`,
-    `Simulation distance ${vanilla.simulationDistance}`,
-    'Max FPS unlimited', 'VSync off',
-    `Graphics ${vanilla.graphicsMode === 0 ? 'Fast' : 'Fancy'}`,
-    `Clouds ${vanilla.cloudStatus === 0 ? 'off' : vanilla.cloudStatus === 1 ? 'fast' : 'fancy'}`,
-    'Entity shadows off', 'Sodium culling on',
-  ];
-  return { applied, tier: t };
+  return {
+    applied: [
+      'Graphics-preserving mode',
+      'Video settings left as this instance saved them',
+      'Chunk scheduling only',
+    ],
+    tier: t,
+  };
 });
 
 // Read back what's actually on disk, so the UI shows the TRUTH rather than
@@ -5365,8 +5600,8 @@ function applyPerfProfileForLaunch(instanceName, versionNumber) {
   if (!profile) return null;
   const dir = instancePath(versionNumber, instanceName);
   try {
-    writeOptionsTxt(dir, buildVanillaOptions(profile.tier, profile.overrides || {}));
-    writeSodiumOptions(dir, profile.tier, profile.overrides || {});
+    // Video options stay as the instance saved them. Rewriting the high-tier
+    // bundle here is what swapped clouds, mipmaps, biome blend and render distance.
     return profile;
   } catch { return null; }
 }
@@ -5392,9 +5627,7 @@ function tuneModConfigs(dir, tier, cores) {
   // --- Entity Culling: tighter culling on weaker machines ---
   try {
     writeJson('entityculling.json', {
-      configVersion: 5,
       renderNametagsThroughWalls: false,
-      skipMarkerArmorStands: true,
       tickCulling: true,
       sleepDelay: tier === 'low' ? 5 : 10,
       hitboxLimit: tier === 'low' ? 25 : 50,
@@ -5408,10 +5641,9 @@ function tuneModConfigs(dir, tier, cores) {
     const dfps = [
       '# Tuned by SolarClient',
       'reduce-fps-when-unfocused = true',
-      `unfocused-fps = ${tier === 'low' ? 1 : 5}`,
-      'reduce-fps-when-hovered = true',
-      `hovered-fps = ${tier === 'low' ? 20 : 30}`,
-      'run-gc-on-unfocus = true',
+      `unfocused-fps = ${tier === 'low' ? 1 : 30}`,
+      'reduce-fps-when-hovered = false',
+      'run-gc-on-unfocus = false',
       'mute-in-background = true',
       'volume-multiplier = 0.0',
       'idle-timeout = 60',
@@ -5468,15 +5700,12 @@ function tuneModConfigs(dir, tier, cores) {
     if (fs.existsSync(p)) { try { s = JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { s = {}; } }
     s.performance = { ...(s.performance || {}),
       // leave headroom for the render + main threads; 0 means "auto"
-      chunk_builder_threads: cores >= 12 ? Math.max(1, Math.floor(cores / 2) - 1) : 0,
+      chunk_build_defer_mode: 'ONE_FRAME',
+      chunk_builder_threads: cores >= 8 ? 2 : 1,
       always_defer_chunk_updates: false,
-      animate_only_visible_textures: true,
-      use_entity_culling: true,
-      use_fog_occlusion: true,
-      use_block_face_culling: true,
       use_no_error_g_l_context: tier !== 'low',
     };
-    s.advanced = { ...(s.advanced || {}), use_advanced_staging_buffers: true, cpu_render_ahead_limit: tier === 'low' ? 2 : 3 };
+    s.advanced = { ...(s.advanced || {}), use_advanced_staging_buffers: true, cpu_render_ahead_limit: 3 };
     fs.writeFileSync(p, JSON.stringify(s, null, 2));
     tuned.push('Sodium');
   } catch { /* ignore */ }

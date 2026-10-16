@@ -122,6 +122,22 @@ async function analyze({ log, dir, versionNumber, loader, memoryMaxGB, startedAt
     /(?:Failed to (?:load|read|parse)|Error (?:loading|reading|parsing)|Could not (?:load|read|parse)|JsonSyntaxException|MalformedJsonException|ParsingException|Invalid config)[^\n]*?\bconfig[\\/]([\w\-. \\/]+?\.(?:json5?|toml|properties|cfg|ya?ml|txt))/gi,
     /\bconfig[\\/]([\w\-. \\/]+?\.(?:json5?|toml|properties|cfg|ya?ml|txt))[^\n]*?(?:corrupt|malformed|invalid|failed|error|exception)/gi,
   ];
+  // Sodium throws "Failed to build config options" when a saved value is not
+  // in that version's enum. The message never names the file, so the path
+  // scan below misses it and the fixer used to stop with nothing to do.
+  if (/Failed to build config options/i.test(text) && /sodium/i.test(text)) {
+    const rel = 'sodium-options.json';
+    if (fs.existsSync(path.join(cfgRoot, rel))) {
+      add({
+        id: `config:${rel}`,
+        kind: 'config',
+        rel,
+        label: 'Reset Sodium settings',
+        detail: 'A saved Sodium option is one this version rejects',
+      });
+    }
+  }
+
   for (const re of cfgRe) {
     for (const m of allMatches(re, text)) {
       const abs = path.resolve(cfgRoot, m[1].trim());
