@@ -75,6 +75,21 @@
         <span class="um-rz se beta-only" data-rz="se" aria-hidden="true"></span>
       </div>
     </div>
+    <div class="lb-wrap stable-only" id="lb-wrap">
+      <button type="button" class="topbar-chip" id="lb-chip" title="Leaderboards">
+        <svg class="lb-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2h10v2.2c0 2.4-1.7 4.4-4 4.8V11h2.2v1.6H4.8V11H7V8.9C4.7 8.6 3 6.6 3 4.2V2zm1.4 1.4v.8c0 1.7 1.2 3.1 2.8 3.5V3.4H4.4zm7.2 0H9.8v4.3c1.6-.4 2.8-1.8 2.8-3.5v-.8zM5.2 13.4h5.6V15H5.2z"/></svg>
+        <span>Leaderboards</span>
+      </button>
+      <div class="lb-menu liquid-glass hidden" id="lb-menu" role="dialog" aria-label="Leaderboards">
+        <div class="um-head">
+          <div class="um-title"><b>Leaderboards</b><span>Highest level first</span></div>
+          <button type="button" class="um-check" id="lb-close" title="Close" aria-label="Close">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 3.2l9.6 9.6M12.8 3.2l-9.6 9.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="lb-list" id="lb-list"></div>
+      </div>
+    </div>
     <div id="online-indicator" class="online-indicator offline" role="button" tabindex="0" title="See who's online">
       <span class="online-dot"></span>
       <span id="online-indicator-label">Online —</span>
@@ -1337,10 +1352,10 @@
     <img class="update-brand" src="assets/solar-client-logo-halloween.png" alt="Solar Client" draggable="false">
     <div class="update-head">
       <div class="update-ico">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v10"/>
+          <path d="M7.5 10.5 12 15l4.5-4.5"/>
+          <path d="M5 19h14"/>
         </svg>
       </div>
       <div>
@@ -1356,10 +1371,17 @@
       <span class="update-arrow">→</span>
       <span id="update-to">—</span>
     </div>
-    <div class="update-sub" id="update-sub">A new SolarClient build is ready.</div>
+    <div class="update-sub hidden" id="update-sub"></div>
     <div class="update-notes-wrap hidden" id="update-notes-wrap">
-      <div class="update-notes-title">What's in this update</div>
+      <div class="update-notes-title">In this update</div>
       <ul class="update-notes" id="update-notes"></ul>
+    </div>
+    <div class="update-steps" id="update-steps">
+      <span class="us" data-step="download">Download</span>
+      <i></i>
+      <span class="us" data-step="verify">Verify</span>
+      <i></i>
+      <span class="us" data-step="install">Install</span>
     </div>
     <div class="update-progress-wrap hidden" id="update-progress-wrap">
       <div class="update-progress-row">
@@ -1377,7 +1399,7 @@
       <button class="pill-btn primary" id="update-primary">Download update</button>
       <button class="pill-btn" id="update-secondary">Not now</button>
     </div>
-    <div class="update-foot" id="update-foot">Optional updates can wait. Mandatory ones must be installed to keep using the launcher.</div>
+    <div class="update-foot hidden" id="update-foot"></div>
   </div>
 </div>
 

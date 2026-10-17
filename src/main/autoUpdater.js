@@ -17,6 +17,7 @@ const { app, ipcMain } = require('electron');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
@@ -829,6 +830,52 @@ function helperScriptSourcePath(names = ['solar-update-helper.ps1', 'solar-updat
   return null;
 }
 
+// app.getPath('temp') is sometimes the 8.3 short path (MARROW~1). Writing
+// solar-update-helper.ps1 there returns EPERM, and the same name is often
+// still locked by the last helper. A private folder and a new file name
+// each attempt is what the installer is actually started from.
+function updateStageDir() {
+  const local = process.env.LOCALAPPDATA || '';
+  const dir = path.join(local, 'SolarClient', 'update');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function longTempDir() {
+  const user = process.env.USERPROFILE || os.homedir();
+  const long = path.join(user, 'AppData', 'Local', 'Temp');
+  try { if (fs.existsSync(long)) return long; } catch { /* ok */ }
+  return process.env.TEMP || process.env.TMP || os.tmpdir();
+}
+
+function writeBytes(filePath, bytes) {
+  try { fs.chmodSync(filePath, 0o666); } catch { /* new file */ }
+  try { fs.unlinkSync(filePath); } catch { /* ok */ }
+  const fd = fs.openSync(filePath, 'w');
+  try { fs.writeSync(fd, bytes); } finally { fs.closeSync(fd); }
+}
+
+function placeUpdateFile(fileName, bytes) {
+  const unique = fileName.replace(/(\.[^.]+)$/, `-${process.pid}-${Date.now()}$1`);
+  const dirs = [];
+  try { dirs.push(updateStageDir()); } catch { /* ok */ }
+  dirs.push(longTempDir());
+  try { dirs.push(app.getPath('userData')); } catch { /* ok */ }
+  let lastErr = null;
+  for (const dir of dirs) {
+    if (!dir) continue;
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ok */ }
+    try {
+      const dest = path.join(dir, unique);
+      writeBytes(dest, bytes);
+      return dest;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Could not write the updater');
+}
+
 function quitApp() {
   try {
     app.removeAllListeners('window-all-closed');
@@ -953,7 +1000,6 @@ function runInstallAndRelaunch() {
   }
 
   const localAppData = process.env.LOCALAPPDATA || '';
-  const tempDir = app.getPath('temp');
   const src = helperScriptSourcePath();
   if (!src) {
     updateState.error = 'Update helper script is missing from the app package.';
@@ -962,37 +1008,32 @@ function runInstallAndRelaunch() {
     return false;
   }
 
-  const helperPath = path.join(tempDir, 'solar-update-helper.ps1');
-  const launchBat = path.join(tempDir, 'solar-update-run.cmd');
-  const readyFlag = path.join(tempDir, 'solar-update-ready.flag');
   const launchExe = resolveLaunchExe();
-
+  let helperPath;
+  let readyFlag;
   try {
     // Copy bytes as-is. Helper script must stay ASCII-only (Windows PS 5.x
     // mangled UTF-8 em-dashes into parse errors = black screen, no replace).
-    fs.writeFileSync(helperPath, fs.readFileSync(src));
+    helperPath = placeUpdateFile('solar-update-helper.ps1', fs.readFileSync(src));
+    readyFlag = path.join(path.dirname(helperPath), `solar-update-ready-${process.pid}.flag`);
+    try { fs.unlinkSync(readyFlag); } catch { /* ok */ }
   } catch (e) {
-    updateState.error = `Could not prepare updater script: ${e.message || e}`;
+    updateState.error = 'Could not prepare the updater. Close SolarClient and try the switch again.';
     updateState.installing = false;
     pushState();
     return false;
   }
 
-  try { fs.unlinkSync(readyFlag); } catch { /* ok */ }
-
   // The progress window shown while the launcher is closed. Copied out of the
   // asar so PowerShell can read it; the icon makes it look like SolarClient.
-  const windowPath = path.join(tempDir, 'solar-update-window.ps1');
-  const iconPath = path.join(tempDir, 'solar-update-icon.ico');
   let windowArg = '';
   let iconArg = '';
   try {
     const winSrc = helperScriptSourcePath(['solar-update-window.ps1']);
-    if (winSrc) { fs.writeFileSync(windowPath, fs.readFileSync(winSrc)); windowArg = windowPath; }
+    if (winSrc) windowArg = placeUpdateFile('solar-update-window.ps1', fs.readFileSync(winSrc));
   } catch { /* helper falls back to its basic window */ }
   try {
-    fs.writeFileSync(iconPath, fs.readFileSync(path.join(__dirname, '..', '..', 'build', 'icon.ico')));
-    iconArg = iconPath;
+    iconArg = placeUpdateFile('solar-update-icon.ico', fs.readFileSync(path.join(__dirname, '..', '..', 'build', 'icon.ico')));
   } catch { /* window just has no logo */ }
   let centerX = 0;
   let centerY = 0;
@@ -1024,7 +1065,7 @@ function runInstallAndRelaunch() {
       'exit /b 0',
       '',
     ].join('\r\n');
-    fs.writeFileSync(launchBat, bat, 'ascii');
+    const launchBat = placeUpdateFile('solar-update-run.cmd', Buffer.from(bat, 'ascii'));
     const p = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', launchBat], {
       detached: true,
       stdio: 'ignore',

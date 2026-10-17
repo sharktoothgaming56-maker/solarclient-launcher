@@ -14292,14 +14292,12 @@ function showPeopleMenu(person, x, y) {
 (function wireUpdateSystem() {
   const modal = document.getElementById('update-modal');
   const titleEl = document.getElementById('update-title');
-  const subEl = document.getElementById('update-sub');
   const notesEl = document.getElementById('update-notes');
   const errEl = document.getElementById('update-error');
   const fromEl = document.getElementById('update-from');
   const toEl = document.getElementById('update-to');
   const channelBadge = document.getElementById('update-channel-badge');
   const policyBadge = document.getElementById('update-policy-badge');
-  const footEl = document.getElementById('update-foot');
   const primaryBtn = document.getElementById('update-primary');
   const secondaryBtn = document.getElementById('update-secondary');
   const progressWrap = document.getElementById('update-progress-wrap');
@@ -14339,10 +14337,18 @@ function showPeopleMenu(person, x, y) {
       progressWrap.classList.toggle('installing', installing);
     }
     if (progressFill) progressFill.style.width = `${n}%`;
+    const step = installing ? 'install' : (n >= 99 ? 'verify' : 'download');
+    document.querySelectorAll('#update-steps .us').forEach((el) => {
+      const order = ['download', 'verify', 'install'];
+      const at = order.indexOf(step);
+      const mine = order.indexOf(el.dataset.step);
+      el.classList.toggle('on', el.dataset.step === step);
+      el.classList.toggle('done', mine >= 0 && mine < at);
+    });
     if (installing) {
       if (progressLabel) progressLabel.textContent = 'Installing update…';
       if (progressPct) progressPct.textContent = '';
-      if (progressBytes) progressBytes.textContent = 'SolarClient will close and reopen';
+      if (progressBytes) progressBytes.textContent = 'Launcher reopens';
       if (progressEta) progressEta.textContent = '';
       return;
     }
@@ -14660,12 +14666,6 @@ function showPeopleMenu(person, x, y) {
       panelMode = 'ready';
       fillOffer(state, state.target);
       if (titleEl) titleEl.textContent = state.installing ? 'Installing update' : 'Update ready';
-      if (subEl) {
-        subEl.innerHTML = state.installing
-          ? `Closing SolarClient, then installing <b>v${state.target.version}</b>…`
-          : `Update <b>v${state.target.version}</b> downloaded. Installing automatically…`;
-      }
-      if (footEl) footEl.textContent = 'SolarClient will close, replace itself with the new version, then reopen.';
       paintProgress(99, state, { installing: true });
       primaryBtn.textContent = state.installing ? 'Installing…' : 'Install & restart';
       primaryBtn.disabled = true;
@@ -14678,8 +14678,6 @@ function showPeopleMenu(person, x, y) {
       panelMode = 'downloading';
       fillOffer(state, state.target || state.stableOffer || state.betaOffer);
       if (titleEl) titleEl.textContent = 'Downloading update';
-      if (subEl) subEl.textContent = 'Installs automatically when the download finishes — the launcher will reopen.';
-      if (footEl) footEl.textContent = 'Keep SolarClient open — it installs and reopens by itself.';
       paintProgress(state.progress || 0, state);
       primaryBtn.textContent = 'Downloading…';
       primaryBtn.disabled = true;
@@ -14695,8 +14693,6 @@ function showPeopleMenu(person, x, y) {
     if (state.installing) {
       panelMode = 'downloading';
       if (titleEl) titleEl.textContent = 'Installing update';
-      if (subEl) subEl.textContent = 'Finishing install — SolarClient will reopen automatically.';
-      if (footEl) footEl.textContent = 'SolarClient will close, replace itself with the new version, then reopen.';
       paintProgress(0, state, { installing: true });
       primaryBtn.textContent = 'Installing…';
       primaryBtn.disabled = true;
@@ -14716,16 +14712,6 @@ function showPeopleMenu(person, x, y) {
         fillOffer(state, stable);
         const isMandatory = stable.policy === 'mandatory';
         if (titleEl) titleEl.textContent = isMandatory ? 'Update required' : 'Update available';
-        if (subEl) {
-          subEl.innerHTML = isMandatory
-            ? `SolarClient <b>v${stable.version}</b> is required. You must update to continue.`
-            : `SolarClient <b>v${stable.version}</b> is available. Update when you want.`;
-        }
-        if (footEl) {
-          footEl.textContent = isMandatory
-            ? 'This update is not optional — the launcher stays locked until it is installed.'
-            : 'You can dismiss this and install later from Updates.';
-        }
         primaryBtn.textContent = 'Update';
         primaryBtn.disabled = false;
         secondaryBtn.textContent = 'Not now';
@@ -14844,7 +14830,6 @@ function showPeopleMenu(person, x, y) {
       panelMode = 'downloading';
       fillOffer(lastState, entry);
       if (titleEl) titleEl.textContent = 'Downloading update';
-      if (subEl) subEl.textContent = 'Starting download…';
       paintProgress(0, lastState);
       showModal(true);
     }
@@ -14857,7 +14842,6 @@ function showPeopleMenu(person, x, y) {
     const entry = lastState?.betaOffer;
     if (entry) fillOffer(lastState, entry);
     if (titleEl) titleEl.textContent = 'Downloading update';
-    if (subEl) subEl.textContent = 'Starting download…';
     paintProgress(0, lastState);
     panelMode = 'downloading';
     showModal(true);
@@ -14896,7 +14880,6 @@ function showPeopleMenu(person, x, y) {
     downloadWhich = 'beta';
     fillOffer(lastState || {}, { version, channel: 'beta', policy: 'optional', notes: '' });
     if (titleEl) titleEl.textContent = 'Downloading update';
-    if (subEl) subEl.textContent = 'Starting download…';
     paintProgress(0, lastState);
     panelMode = 'downloading';
     showModal(true);
@@ -14919,7 +14902,6 @@ function showPeopleMenu(person, x, y) {
       }
       // Show the bar immediately — don't wait for the first progress tick.
       paintProgress(0, lastState);
-      if (subEl) subEl.textContent = 'Starting download…';
       if (titleEl) titleEl.textContent = 'Downloading update';
       panelMode = 'downloading';
       showModal(true);
@@ -15234,4 +15216,104 @@ setTimeout(checkWhatsNew, 1500);
   if (el) el.textContent = (window.nebula.runtimeVersions && window.nebula.runtimeVersions.electron)
     ? 'Electron ' + window.nebula.runtimeVersions.electron
     : '—';
+})();
+
+(() => {
+  const chip = document.getElementById('lb-chip');
+  const menu = document.getElementById('lb-menu');
+  const list = document.getElementById('lb-list');
+  const closeBtn = document.getElementById('lb-close');
+  if (!chip || !menu || !list || document.body.classList.contains('beta-layout')) return;
+
+  function place() {
+    const r = chip.getBoundingClientRect();
+    const width = menu.offsetWidth || 340;
+    let left = Math.min(r.left, window.innerWidth - width - 12);
+    left = Math.max(12, left);
+    let top = r.bottom + 8;
+    const maxTop = window.innerHeight - (menu.offsetHeight || 200) - 12;
+    top = Math.min(top, Math.max(12, maxTop));
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+  }
+
+  function paint(data) {
+    const rows = Array.isArray(data?.rows) ? data.rows : [];
+    list.replaceChildren();
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'lb-empty';
+      empty.textContent = 'No rankings yet.';
+      list.appendChild(empty);
+      return;
+    }
+    const you = String(data.you || '');
+    for (const row of rows) {
+      const el = document.createElement('div');
+      el.className = 'lb-row' + (row.id && row.id === you ? ' you' : '');
+      const rank = document.createElement('div');
+      rank.className = 'lb-rank';
+      rank.textContent = String(row.rank || '');
+      const who = document.createElement('div');
+      who.className = 'lb-who';
+      const name = document.createElement('b');
+      name.textContent = String(row.name || 'Player');
+      const time = document.createElement('span');
+      time.textContent = fmtMins(Number(row.minutes) || 0) + ' played';
+      who.append(name, time);
+      const lvl = document.createElement('div');
+      lvl.className = 'lb-lvl';
+      lvl.textContent = 'Level ' + (Number(row.level) || 1);
+      const ore = document.createElement('span');
+      const oreInfo = oreForLevel(Number(row.level) || 1);
+      ore.textContent = oreInfo && oreInfo.name ? oreInfo.name : '';
+      lvl.appendChild(ore);
+      el.append(rank, who, lvl);
+      list.appendChild(el);
+    }
+  }
+
+  async function load() {
+    list.replaceChildren();
+    const waiting = document.createElement('div');
+    waiting.className = 'lb-empty';
+    waiting.textContent = 'Loading rankings…';
+    list.appendChild(waiting);
+    try {
+      paint(await window.nebula.leaderboard());
+    } catch {
+      list.replaceChildren();
+      const err = document.createElement('div');
+      err.className = 'lb-empty';
+      err.textContent = 'Leaderboards are unavailable right now.';
+      list.appendChild(err);
+    }
+    place();
+  }
+
+  function open() {
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
+    menu.classList.remove('hidden');
+    document.getElementById('lb-wrap')?.classList.add('open');
+    place();
+    load();
+  }
+
+  function close() {
+    menu.classList.add('hidden');
+    document.getElementById('lb-wrap')?.classList.remove('open');
+  }
+
+  chip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.classList.contains('hidden')) open();
+    else close();
+  });
+  closeBtn?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+  document.addEventListener('mousedown', (e) => {
+    if (menu.classList.contains('hidden')) return;
+    if (e.target === chip || chip.contains(e.target) || menu.contains(e.target)) return;
+    close();
+  });
+  window.addEventListener('resize', () => { if (!menu.classList.contains('hidden')) place(); });
 })();

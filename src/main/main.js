@@ -1853,6 +1853,32 @@ app.on('before-quit', () => { try { serverHost?.stopAll(); } catch { /* best eff
 
 ipcMain.handle('xp:get', () => xpPayload());
 
+ipcMain.handle('leaderboard:list', async () => {
+  const base = await require('./endpoints').apiBase();
+  const account = getAccounts().find(a => a.id === store.get('activeAccountId'));
+  const id = String(account?.id || '').replace(/-/g, '').toLowerCase();
+  let payload = null;
+  if (/^[0-9a-f]{32}$/.test(id) && account?.name) {
+    const xp = xpPayload();
+    payload = {
+      id,
+      name: String(account.name).slice(0, 16),
+      level: xp.level,
+      minutes: xp.totalXp,
+    };
+  }
+  const res = await fetch(`${base}/leaderboard`, {
+    method: payload ? 'POST' : 'GET',
+    headers: payload ? { 'content-type': 'application/json' } : undefined,
+    body: payload ? JSON.stringify(payload) : undefined,
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error('leaderboard unavailable');
+  const data = await res.json();
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  return { rows, you: data.you || (payload ? payload.id : '') };
+});
+
 ipcMain.handle('xp:add', (_e, amount) => addXp(amount));
 // leave phantom "logged in" sessions hanging on some server's player list.
 app.on('before-quit', () => {
@@ -3085,15 +3111,15 @@ const PERF_JVM_ARGS = [
   '-XX:G1HeapWastePercent=5',
 ];
 
-// The heap is committed up front. Compile thresholds stay at the JDK defaults.
-// Two compiler threads were why the counter sat low for about half a minute:
-// the render path was still being compiled. Six threads finish that climb,
-// then they go idle. The old 100-FPS stalls were crushed compile thresholds,
-// which are not set here.
+// The heap is committed up front. Compile thresholds stay at the JDK
+// defaults. Forcing methods to compile after a few dozen calls, then
+// freezing them after two tries, left the game stuck near 100. Four
+// compiler threads clear that queue. The normal threshold is a real
+// profile, so the counter is not kicked by a recompile every second.
 const FPS_WARMUP_JVM_ARGS = [
   '-XX:+AlwaysPreTouch',
   '-XX:ReservedCodeCacheSize=384m',
-  '-XX:CICompilerCount=6',
+  '-XX:CICompilerCount=4',
 ];
 
 function perfJvmArgs(versionNumber, maxGB) {
