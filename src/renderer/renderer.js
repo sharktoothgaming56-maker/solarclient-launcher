@@ -1277,12 +1277,44 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     if (view === 'mods') { refreshInstanceSelects(); refreshInstalledContent().then(searchMods); }
     if (view === 'settings') { refreshAccountSettings(); refreshDiscordSettings(); }
     if (view === 'skins') refreshSkins();
+    if (view === 'cosmetics') renderCosmetics();
     if (view === 'friends') renderFriendsView();
     if (view === 'servers') renderServers();
     if (view === 'customize') renderCustomize();
     if (view === 'launchpad') renderPerformance();
   });
 });
+
+const COSMETICS = [
+  { id: 'hat-crown', slot: 'hat', name: 'Solar crown', blurb: 'A small crown with the planet mark.', img: 'assets/cosmetics/hat_crown.png' },
+  { id: 'cape-plain', slot: 'cape', name: 'Solar cape', blurb: 'A plain purple cape.', img: 'assets/cosmetics/cape_plain.png' },
+  { id: 'cape-planet-light', slot: 'cape', name: 'Planet cape', blurb: 'Light cape with the planet logo.', img: 'assets/cosmetics/cape_planet_light.png' },
+  { id: 'cape-planet-dark', slot: 'cape', name: 'Planet cape, dark', blurb: 'Dark cape with the planet logo.', img: 'assets/cosmetics/cape_planet_dark.png' },
+  { id: 'cape-sun-light', slot: 'cape', name: 'Sun cape', blurb: 'Light cape with the sun logo.', img: 'assets/cosmetics/cape_sun_light.png' },
+  { id: 'cape-sun-dark', slot: 'cape', name: 'Sun cape, dark', blurb: 'Dark cape with the sun logo.', img: 'assets/cosmetics/cape_sun_dark.png' },
+  { id: 'cape-halloween', slot: 'cape', name: 'Halloween cape', blurb: 'Cape with the Halloween logo.', img: 'assets/cosmetics/cape_halloween.png' },
+];
+
+async function renderCosmetics() {
+  const grid = document.getElementById('cosmetics-grid');
+  if (!grid || !window.nebula.cosmeticsGet) return;
+  const worn = await window.nebula.cosmeticsGet().catch(() => ({ hat: '', cape: '' }));
+  grid.innerHTML = COSMETICS.map((item) => {
+    const on = worn[item.slot] === item.id;
+    return `<article class="cosmetic-card glass liquid-glass${on ? ' equipped' : ''}">
+      <img src="${item.img}" alt="">
+      <h2>${item.name}</h2>
+      <p>${item.blurb}</p>
+      <button type="button" class="pill-btn${on ? '' : ' primary'}" data-slot="${item.slot}" data-id="${on ? '' : item.id}">${on ? 'Unequip' : 'Equip'}</button>
+    </article>`;
+  }).join('');
+  grid.querySelectorAll('button[data-slot]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await window.nebula.cosmeticsEquip(btn.dataset.slot, btn.dataset.id || null);
+      renderCosmetics();
+    });
+  });
+}
 
 // ---------- skin image helpers (mc-heads primary, crafatar fallback) ----------
 function avatarUrl(uuid) { return `https://mc-heads.net/avatar/${uuid}/32`; }

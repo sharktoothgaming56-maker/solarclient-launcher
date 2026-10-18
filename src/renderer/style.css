@@ -750,6 +750,13 @@ select:focus, input:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(-
 
 /* ---------- views ---------- */
 .view{display:none; padding:24px 28px; overflow-y:auto; flex:1;}
+.cosmetics-note{margin:0 0 14px; color:rgba(255,255,255,0.72); font-size:13px;}
+.cosmetics-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px;}
+.cosmetic-card{padding:12px; border-radius:16px; display:flex; flex-direction:column; gap:8px;}
+.cosmetic-card img{width:100%; height:140px; object-fit:contain; background:rgba(0,0,0,0.28); border-radius:12px;}
+.cosmetic-card h2{margin:0; font-size:14px;}
+.cosmetic-card p{margin:0; font-size:12px; color:rgba(255,255,255,0.62);}
+.cosmetic-card.equipped{outline:2px solid var(--accent);}
 .view.active{display:block; animation:view-in .25s ease;}
 @keyframes view-in{from{opacity:0; transform:translateY(8px);}to{opacity:1; transform:translateY(0);}}
 .view-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;}

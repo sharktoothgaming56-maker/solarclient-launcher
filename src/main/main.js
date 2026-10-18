@@ -1853,6 +1853,60 @@ app.on('before-quit', () => { try { serverHost?.stopAll(); } catch { /* best eff
 
 ipcMain.handle('xp:get', () => xpPayload());
 
+const COSMETIC_IDS = new Set([
+  'hat-crown',
+  'cape-plain',
+  'cape-planet-light',
+  'cape-planet-dark',
+  'cape-sun-light',
+  'cape-sun-dark',
+  'cape-halloween',
+]);
+
+function readCosmetics() {
+  const saved = store.get('cosmetics', {});
+  const hat = COSMETIC_IDS.has(saved.hat) ? saved.hat : '';
+  const cape = COSMETIC_IDS.has(saved.cape) ? saved.cape : '';
+  return { hat, cape };
+}
+
+function writeCosmeticsFile(worn) {
+  const file = path.join(app.getPath('userData'), 'cosmetics.json');
+  fs.writeFileSync(file, JSON.stringify({ hat: worn.hat || '', cape: worn.cape || '' }));
+}
+
+async function publishCosmetics(worn) {
+  writeCosmeticsFile(worn);
+  const base = await require('./endpoints').apiBase();
+  const account = getAccounts().find(a => a.id === store.get('activeAccountId'));
+  const id = String(account?.id || '').replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(id)) return worn;
+  await fetch(`${base}/cosmetics`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id, hat: worn.hat || '', cape: worn.cape || '' }),
+    signal: AbortSignal.timeout(8000),
+  });
+  return worn;
+}
+
+ipcMain.handle('cosmetics:get', () => {
+  const worn = readCosmetics();
+  try { writeCosmeticsFile(worn); } catch { /* the page still opens */ }
+  return worn;
+});
+
+ipcMain.handle('cosmetics:equip', async (_e, { slot, id } = {}) => {
+  if (slot !== 'hat' && slot !== 'cape') throw new Error('bad slot');
+  const next = readCosmetics();
+  next[slot] = id && COSMETIC_IDS.has(id) ? id : '';
+  store.set('cosmetics', next);
+  try { await publishCosmetics(next); } catch (err) {
+    console.warn('[SolarClient] cosmetics publish failed:', err.message);
+  }
+  return next;
+});
+
 ipcMain.handle('leaderboard:list', async () => {
   const base = await require('./endpoints').apiBase();
   const account = getAccounts().find(a => a.id === store.get('activeAccountId'));
@@ -4585,22 +4639,49 @@ function preloadKey(a) {
   return [acc, a.instanceName, a.versionNumber, a.loader || 'vanilla', a.memoryMaxGB, a.memoryMinGB, !!a.performanceMode].join('|');
 }
 
+function fabricModVersion(jarPath) {
+  try {
+    const entry = new (getAdmZip())(jarPath).getEntry('fabric.mod.json');
+    if (!entry) return null;
+    const ver = JSON.parse(entry.getData().toString('utf8')).version;
+    return typeof ver === 'string' && ver ? ver : null;
+  } catch { return null; }
+}
+
+function modVersionAtLeast(have, want) {
+  const parts = String(have).split('.').map((s) => parseInt(s, 10));
+  for (let i = 0; i < want.length; i++) {
+    const d = (Number.isFinite(parts[i]) ? parts[i] : 0) - want[i];
+    if (d) return d > 0;
+  }
+  return true;
+}
+
+// A published jar is solarclient-<mc>-<mod>.jar. The local override is
+// solarclient-local-<mc>.jar, so its mod version has to come from the jar.
 function solarModSupportsPreload(dir, versionNumber) {
   try {
     const want = PRELOAD_MIN_MOD.split('.').map(Number);
-    let names;
-    if (!HIDDEN_SOLAR_MOD) names = fs.readdirSync(path.join(dir, 'mods'));
-    else if (hiddenSolarJars.has(versionNumber)) names = [path.basename(hiddenSolarJars.get(versionNumber))];
-    else names = fs.readdirSync(solarModCacheDir());
-    return names.some((f) => {
-      const m = SOLAR_MOD_RE.exec(f);
-      if (!m || m[1] !== versionNumber) return false;
-      const have = m[2].split('.').map(Number);
-      for (let i = 0; i < want.length; i++) {
-        const d = (have[i] || 0) - want[i];
-        if (d) return d > 0;
+    const localRe = new RegExp(`^solarclient-local-${versionNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.jar$`, 'i');
+    const files = [];
+    if (!HIDDEN_SOLAR_MOD) {
+      const modsDir = path.join(dir, 'mods');
+      for (const f of fs.readdirSync(modsDir)) files.push(path.join(modsDir, f));
+    } else if (hiddenSolarJars.has(versionNumber)) {
+      files.push(hiddenSolarJars.get(versionNumber));
+    } else {
+      const cache = solarModCacheDir();
+      for (const f of fs.readdirSync(cache)) files.push(path.join(cache, f));
+    }
+    return files.some((full) => {
+      const base = path.basename(full);
+      let have = null;
+      if (localRe.test(base)) have = fabricModVersion(full);
+      else {
+        const m = SOLAR_MOD_RE.exec(base);
+        if (m && m[1] === versionNumber) have = m[2];
       }
-      return true;
+      return !!have && modVersionAtLeast(have, want);
     });
   } catch { return false; }
 }
