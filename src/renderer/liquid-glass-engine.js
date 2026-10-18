@@ -20,7 +20,7 @@
     B: '0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0',
   };
 
-  // Defaults match Chance's tuned liqui dials (launcher Settings screenshot).
+  // Defaults match Shark's tuned liqui dials (launcher Settings screenshot).
   const DEFAULTS = {
     material: 'auto',
     profile: 'squircle',

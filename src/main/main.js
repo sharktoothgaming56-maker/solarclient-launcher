@@ -158,7 +158,7 @@ function killOtherSolarClients() {
 // machine turns out to hate it.
 // =====================================================================
 // GPU switches used to force rasterisation / zero-copy / 256MB tile budget.
-// On several Windows machines (including Chance's) that makes the GPU process
+// On several Windows machines (including Shark's) that makes the GPU process
 // exit immediately → solid black frameless window. Keep Chromium defaults;
 // set SOLARCLIENT_GPU_TWEAKS=1 only to opt back into the aggressive path.
 if (process.env.SOLARCLIENT_GPU_TWEAKS === '1') {

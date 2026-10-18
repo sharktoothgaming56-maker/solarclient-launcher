@@ -78,7 +78,7 @@ const defaultTheme = {
 };
 let theme = { ...defaultTheme };
 try { theme = { ...defaultTheme, ...JSON.parse(localStorage.getItem('nebula-theme') || '{}') }; } catch { /* fresh */ }
-// One-shot: adopt Chance's tuned glass shell/dim as the new baseline.
+// One-shot: adopt Shark's tuned glass shell/dim as the new baseline.
 if (localStorage.getItem('nebula-glass-defaults-v') !== '3') {
   theme.alpha = 34;
   theme.sceneDim = 9;
