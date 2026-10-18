@@ -1290,8 +1290,8 @@ const COSMETICS = [
   { id: 'cape-plain', slot: 'cape', name: 'Solar cape', blurb: 'A plain purple cape.', img: 'assets/cosmetics/cape_plain.png' },
   { id: 'cape-planet-light', slot: 'cape', name: 'Planet cape', blurb: 'Light cape with the planet logo.', img: 'assets/cosmetics/cape_planet_light.png' },
   { id: 'cape-planet-dark', slot: 'cape', name: 'Planet cape, dark', blurb: 'Dark cape with the planet logo.', img: 'assets/cosmetics/cape_planet_dark.png' },
-  { id: 'cape-sun-light', slot: 'cape', name: 'Sun cape', blurb: 'Light cape with the sun logo.', img: 'assets/cosmetics/cape_sun_light.png' },
-  { id: 'cape-sun-dark', slot: 'cape', name: 'Sun cape, dark', blurb: 'Dark cape with the sun logo.', img: 'assets/cosmetics/cape_sun_dark.png' },
+  { id: 'cape-sun-light', slot: 'cape', name: 'Logo cape', blurb: 'Light cape with the SolarClient logo.', img: 'assets/cosmetics/cape_sun_light.png' },
+  { id: 'cape-sun-dark', slot: 'cape', name: 'Logo cape, dark', blurb: 'Dark cape with the SolarClient logo.', img: 'assets/cosmetics/cape_sun_dark.png' },
   { id: 'cape-halloween', slot: 'cape', name: 'Halloween cape', blurb: 'Cape with the Halloween logo.', img: 'assets/cosmetics/cape_halloween.png' },
 ];
 
