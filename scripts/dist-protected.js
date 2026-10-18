@@ -68,15 +68,35 @@ function collect(dir, out = []) {
 
   console.log(`[protect] obfuscating ${files.length} source files`);
   let code = 1;
+  // The NSIS update step copies the old uninstaller to old-uninstaller.exe and
+  // runs it. AVG blocks that dropped file (IDP.Generic) and setup then stops
+  // with "Failed to uninstall old application files". The installer already
+  // closes SolarClient, so this step returns success and the new files replace
+  // the old ones directly.
+  const nsisUtil = path.join(ROOT, 'node_modules', 'app-builder-lib', 'templates', 'nsis', 'include', 'installUtil.nsh');
+  const nsisOriginal = fs.readFileSync(nsisUtil);
+  const nsisPatched = nsisOriginal.toString('utf8').replace(
+    '  Push 0\r\n  Pop $R0\r\n\r\n  !insertmacro readReg $uninstallString',
+    '  Push 0\r\n  Pop $R0\r\n  Return\r\n\r\n  !insertmacro readReg $uninstallString'
+  ).replace(
+    '  Push 0\n  Pop $R0\n\n  !insertmacro readReg $uninstallString',
+    '  Push 0\n  Pop $R0\n  Return\n\n  !insertmacro readReg $uninstallString'
+  );
+  if (nsisPatched === nsisOriginal.toString('utf8')) {
+    console.error('[protect] REFUSING TO BUILD: could not remove the old-uninstaller step.');
+    process.exit(1);
+  }
   try {
     for (const f of files) {
       const target = /(?:^|[\\/])renderer[\\/]/.test(rel(f)) ? 'browser' : 'node';
       obfuscateFile(f, target);
     }
+    fs.writeFileSync(nsisUtil, nsisPatched);
     const extra = process.argv.slice(2);
     const r = spawnSync('npm', ['run', 'dist:raw', ...(extra.length ? ['--', ...extra] : [])], { cwd: ROOT, stdio: 'inherit', shell: true });
     code = r.status == null ? 1 : r.status;
   } finally {
+    fs.writeFileSync(nsisUtil, nsisOriginal);
     for (const f of files) {
       const b = path.join(backupRoot, rel(f));
       if (fs.existsSync(b)) fs.copyFileSync(b, f);
