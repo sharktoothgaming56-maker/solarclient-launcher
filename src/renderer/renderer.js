@@ -1286,34 +1286,52 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 });
 
 const COSMETICS = [
-  { id: 'hat-crown', slot: 'hat', name: 'Solar crown', blurb: 'A small crown with the planet mark.', img: 'assets/cosmetics/hat_crown.png' },
-  { id: 'cape-plain', slot: 'cape', name: 'Solar cape', blurb: 'A plain purple cape.', img: 'assets/cosmetics/cape_plain.png' },
-  { id: 'cape-planet-light', slot: 'cape', name: 'Planet cape', blurb: 'Light cape with the planet logo.', img: 'assets/cosmetics/cape_planet_light.png' },
-  { id: 'cape-planet-dark', slot: 'cape', name: 'Planet cape, dark', blurb: 'Dark cape with the planet logo.', img: 'assets/cosmetics/cape_planet_dark.png' },
-  { id: 'cape-sun-light', slot: 'cape', name: 'Logo cape', blurb: 'Light cape with the SolarClient logo.', img: 'assets/cosmetics/cape_sun_light.png' },
-  { id: 'cape-sun-dark', slot: 'cape', name: 'Logo cape, dark', blurb: 'Dark cape with the SolarClient logo.', img: 'assets/cosmetics/cape_sun_dark.png' },
-  { id: 'cape-halloween', slot: 'cape', name: 'Halloween cape', blurb: 'Cape with the Halloween logo.', img: 'assets/cosmetics/cape_halloween.png' },
+  { id: 'cape-plain', kind: 'cape', name: 'Solar cape', blurb: 'A plain purple cape.', img: 'assets/cosmetics/cape_plain.png' },
+  { id: 'cape-planet-light', kind: 'cape', name: 'Planet cape', blurb: 'Cape with the planet logo.', img: 'assets/cosmetics/cape_planet_light.png' },
+  { id: 'cape-sun-light', kind: 'cape', name: 'Logo cape', blurb: 'Cape with the SolarClient wordmark.', img: 'assets/cosmetics/cape_sun_light.png' },
+  { id: 'cape-halloween', kind: 'cape', name: 'Halloween cape', blurb: 'Cape with the Halloween logo.', img: 'assets/cosmetics/cape_halloween.png' },
+  { id: 'cloak-gold', kind: 'cloak', name: 'Gold hem cloak', blurb: 'A long cloak with a gold hem.', img: 'assets/cosmetics/cloak_gold.png' },
+  { id: 'wings-solar', kind: 'wings', name: 'Solar wings', blurb: 'Gold wings on your back.', img: 'assets/cosmetics/wings_solar.png' },
+  { id: 'backpack-crate', kind: 'backpack', name: 'Crate pack', blurb: 'A wooden crate on your back.', img: 'assets/cosmetics/backpack_crate.png' },
+  { id: 'bandana-red', kind: 'bandana', name: 'Red bandana', blurb: 'Tied around the head.', img: 'assets/cosmetics/bandana_red.png' },
+  { id: 'headphones-purple', kind: 'headphones', name: 'Purple cans', blurb: 'Over-ear headphones.', img: 'assets/cosmetics/headphones_purple.png' },
+  { id: 'glasses-gold', kind: 'glasses', name: 'Gold shades', blurb: 'Gold-frame sunglasses.', img: 'assets/cosmetics/glasses_gold.png' },
+  { id: 'halo-gold', kind: 'halo', name: 'Solar halo', blurb: 'A gold ring over the head.', img: 'assets/cosmetics/halo_gold.png' },
+  { id: 'shoulders-iron', kind: 'shoulders', name: 'Iron pads', blurb: 'Shoulder plates.', img: 'assets/cosmetics/shoulders_iron.png' },
+  { id: 'belt-gold', kind: 'belt', name: 'Gold belt', blurb: 'A leather belt with a gold buckle.', img: 'assets/cosmetics/belt_gold.png' },
+  { id: 'scarf-green', kind: 'scarf', name: 'Trail scarf', blurb: 'A green scarf around the neck.', img: 'assets/cosmetics/scarf_green.png' },
+  { id: 'antenna-red', kind: 'antenna', name: 'Signal antenna', blurb: 'A red-tipped antenna.', img: 'assets/cosmetics/antenna_red.png' },
 ];
 
 async function renderCosmetics() {
   const grid = document.getElementById('cosmetics-grid');
   if (!grid || !window.nebula.cosmeticsGet) return;
-  const worn = await window.nebula.cosmeticsGet().catch(() => ({ hat: '', cape: '' }));
+  const worn = await window.nebula.cosmeticsGet().catch(() => ({ id: '' }));
+  const onId = worn.id || worn.cape || '';
   grid.innerHTML = COSMETICS.map((item) => {
-    const on = worn[item.slot] === item.id;
+    const on = onId === item.id;
     return `<article class="cosmetic-card glass liquid-glass${on ? ' equipped' : ''}">
       <img src="${item.img}" alt="">
       <h2>${item.name}</h2>
       <p>${item.blurb}</p>
-      <button type="button" class="pill-btn${on ? '' : ' primary'}" data-slot="${item.slot}" data-id="${on ? '' : item.id}">${on ? 'Unequip' : 'Equip'}</button>
+      <button type="button" class="pill-btn${on ? '' : ' primary'}" data-id="${on ? '' : item.id}">${on ? 'Unequip' : 'Equip'}</button>
     </article>`;
   }).join('');
-  grid.querySelectorAll('button[data-slot]').forEach((btn) => {
+  grid.querySelectorAll('button[data-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await window.nebula.cosmeticsEquip(btn.dataset.slot, btn.dataset.id || null);
+      await window.nebula.cosmeticsEquip('item', btn.dataset.id || null);
       renderCosmetics();
+      applyHeroCosmetic();
     });
   });
+}
+
+async function applyHeroCosmetic() {
+  if (!heroViewer?.setCosmetic) return;
+  const worn = await window.nebula.cosmeticsGet?.().catch(() => ({ id: '' }));
+  const id = worn?.id || worn?.cape || '';
+  const item = COSMETICS.find((c) => c.id === id);
+  heroViewer.setCosmetic(item ? item.img : null);
 }
 
 // ---------- skin image helpers (mc-heads primary, crafatar fallback) ----------
@@ -1405,6 +1423,7 @@ async function mountHeroSkin(uuid) {
     upgraded = true;
     flat.style.display = 'none';
     canvas.classList.remove('hidden');
+    applyHeroCosmetic();
   } catch (err) {
     console.warn('[SolarClient] skin preview failed, using flat render:', err);
   }
@@ -11611,6 +11630,7 @@ document.getElementById('skin-apply-btn').addEventListener('click', async () => 
     if (heroViewer) {
       await heroViewer.setSkin(selectedSkin.dataUrl).catch(() => {});
       heroViewer.setSlim(model === 'slim');
+      applyHeroCosmetic();
       document.getElementById('skin-canvas')?.classList.remove('hidden');
       document.getElementById('skin-render').style.display = 'none';
     } else {

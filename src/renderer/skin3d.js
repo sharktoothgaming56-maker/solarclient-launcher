@@ -127,6 +127,8 @@
     this.pixels = null;
     this.tex = null;
     this.dragging = false;
+    this._cosmetic = null;
+    this._cosmeticMesh = null;
     this._w = canvas.clientWidth || 220;
     this._h = canvas.clientHeight || 340;
     this.viewer = new GL.SkinViewer({
@@ -256,6 +258,33 @@
     this.render();
   };
   Skin3D.prototype.setOverlay = function (v) { this.showOverlay = !!v; this._applyVisibility(); this.render(); };
+  Skin3D.prototype.setCosmetic = function (src) {
+    const GL = global.SolarSkinGL;
+    const player = this.viewer && this.viewer.playerObject;
+    if (!GL || !player) return;
+    if (this._cosmeticMesh) {
+      player.remove(this._cosmeticMesh);
+      this._cosmeticMesh.material?.map?.dispose?.();
+      this._cosmeticMesh.material?.dispose?.();
+      this._cosmeticMesh.geometry?.dispose?.();
+      this._cosmeticMesh = null;
+    }
+    this._cosmetic = src || null;
+    if (!src) { this.render(); return; }
+    const loader = new GL.TextureLoader();
+    loader.load(src, (tex) => {
+      if (this._cosmetic !== src) return;
+      tex.magFilter = GL.NearestFilter;
+      tex.minFilter = GL.NearestFilter;
+      tex.colorSpace = GL.SRGBColorSpace || tex.colorSpace;
+      const mat = new GL.MeshBasicMaterial({ map: tex, transparent: true, side: GL.DoubleSide, alphaTest: 0.08 });
+      const mesh = new GL.Mesh(new GL.PlaneGeometry(10, 16), mat);
+      mesh.position.set(0, 8, -1.35);
+      player.add(mesh);
+      this._cosmeticMesh = mesh;
+      this.render();
+    });
+  };
   Skin3D.prototype.setHiddenParts = function (list) { this.hiddenParts = new Set(list || []); this._applyVisibility(); this.render(); };
 
   Skin3D.prototype._applyVisibility = function () {
