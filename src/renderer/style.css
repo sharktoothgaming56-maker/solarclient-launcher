@@ -750,13 +750,22 @@ select:focus, input:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(-
 
 /* ---------- views ---------- */
 .view{display:none; padding:24px 28px; overflow-y:auto; flex:1;}
-.cosmetics-note{margin:0 0 14px; color:rgba(255,255,255,0.72); font-size:13px;}
-.cosmetics-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(168px, 1fr)); gap:12px; overflow:auto; padding-bottom:12px;}
-.cosmetic-card{padding:12px; border-radius:16px; display:flex; flex-direction:column; gap:8px;}
-.cosmetic-card img{width:100%; height:140px; object-fit:contain; background:rgba(0,0,0,0.28); border-radius:12px;}
-.cosmetic-card h2{margin:0; font-size:14px;}
-.cosmetic-card p{margin:0; font-size:12px; color:rgba(255,255,255,0.62);}
-.cosmetic-card.equipped{outline:2px solid var(--accent);}
+.cosmetics-layout{display:grid; grid-template-columns:320px 1fr; gap:16px; align-items:start;}
+.cosmetics-stage{padding:18px; border-radius:16px; display:flex; flex-direction:column; align-items:center; gap:10px;}
+.cosmetics-canvas{width:100%; height:420px; border-radius:14px; background:rgba(0,0,0,0.22);}
+.cosmetics-stage-name{font-size:16px; font-weight:800; text-align:center;}
+.cosmetics-stage-blurb{margin:0; font-size:12.5px; color:var(--text-dim); text-align:center; min-height:32px;}
+.cosmetics-equip{width:100%;}
+.cosmetics-equip:disabled{opacity:0.45; cursor:default; filter:none; transform:none;}
+.cosmetics-library{padding:14px; border-radius:16px; min-height:520px;}
+.cosmetics-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(132px, 1fr)); gap:10px;}
+.cosmetic-card{padding:10px; border-radius:14px; display:flex; flex-direction:column; gap:6px; cursor:pointer; background:rgba(255,255,255,0.04); border:1px solid transparent; text-align:left;}
+.cosmetic-card img{width:100%; height:88px; object-fit:contain; image-rendering:pixelated; background:rgba(0,0,0,0.28); border-radius:10px;}
+.cosmetic-card h2{margin:0; font-size:13px;}
+.cosmetic-card p{margin:0; font-size:11px; color:rgba(255,255,255,0.62);}
+.cosmetic-card .cosmetic-worn{font-size:10px; font-weight:800; letter-spacing:0.4px; text-transform:uppercase; color:var(--accent);}
+.cosmetic-card.selected{border-color:var(--accent);}
+.cosmetic-card.equipped{box-shadow:inset 0 0 0 2px var(--accent);}
 .view.active{display:block; animation:view-in .25s ease;}
 @keyframes view-in{from{opacity:0; transform:translateY(8px);}to{opacity:1; transform:translateY(0);}}
 .view-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;}
@@ -2186,6 +2195,7 @@ body.dropdown-open .instance-grid {
 
 @media (max-width:1000px){
   .skins-layout{grid-template-columns:1fr;}
+  .cosmetics-layout{grid-template-columns:1fr;}
   .se-body{flex-wrap:wrap;}
   .se-canvas-wrap{width:min(380px,80vw); height:min(380px,80vw);}
 }
@@ -5456,6 +5466,7 @@ body.beta-layout #online-pop.dragging .op-head{ cursor:grabbing; }
 #updates-menu > .um-rz.nw{ top:0; left:0; cursor:nwse-resize; }
 #updates-menu > .um-rz.ne{ top:0; right:0; cursor:nesw-resize; }
 /* The X lives in the top-right corner, so that corner doesn't resize. */
+body.beta-layout :is(#live-chat > .lc-rz, #mod-modal .mod-panel > .mod-rz, #online-pop > .op-rz, #updates-menu > .um-rz).ne{ display:none !important; }
 body.beta-layout :is(#live-chat > .lc-rz, #mod-modal .mod-panel > .mod-rz, #online-pop > .op-rz, #updates-menu > .um-rz){ pointer-events:auto; }
 #mod-modal .mod-panel > .mod-rz{ z-index:12 !important; }
 body.beta-layout :is(#launch-art, #launch-art-stars, #bg-version-watermark){ display:none !important; }
@@ -5492,12 +5503,11 @@ body.beta-layout.skin-grabbing .skin-ring,
 body.beta-layout.skin-grabbing .hero-sheen::after{ animation-play-state:paused !important; }
 #updates-menu > .um-rz.sw{ bottom:0; left:0; cursor:nesw-resize; }
 #updates-menu > .um-rz.se{ bottom:0; right:0; cursor:nwse-resize; }
-/* Corner grips on every floating panel: a white bracket hugging the rounded corner.
-   Only a small faint tick marks the bottom-right; a bracket shows only when the cursor
-   is on its corner, growing and glowing, and the one you're dragging keeps glowing. */
+/* Corner grips on every floating panel. Nothing is drawn until the cursor is on
+   that corner. The corner beside the X is not a grip and never draws. */
 :is(#live-chat > .lc-rz, #mod-modal .mod-panel > .mod-rz, #online-pop > .op-rz, #updates-menu > .um-rz){ width:22px; height:22px; }
 :is(#live-chat > .lc-rz, #mod-modal .mod-panel > .mod-rz, #online-pop > .op-rz, #updates-menu > .um-rz)::after{
-  content:''; position:absolute; width:9px; height:9px; border:2.5px solid #fff; opacity:0.55;
+  content:''; position:absolute; width:9px; height:9px; border:2.5px solid #fff; opacity:0;
   transition:opacity .2s ease, width .32s cubic-bezier(.34,1.56,.64,1), height .32s cubic-bezier(.34,1.56,.64,1), filter .2s ease;
 }
 :is(.lc-rz, .mod-rz, .op-rz, .um-rz).nw::after{ top:5px; left:5px; border-right:0; border-bottom:0; border-top-left-radius:11px; }
@@ -5787,15 +5797,15 @@ body.sc-popdoc .sc-pop-rz.e{ right:0; }
 body.sc-popdoc .sc-pop-rz.w{ left:0; }
 body.sc-popdoc .sc-pop-rz:is(.nw, .ne, .sw, .se){ width:16px; height:16px; }
 body.sc-popdoc .sc-pop-rz.nw{ top:0; left:0; cursor:nwse-resize; }
-body.sc-popdoc .sc-pop-rz.ne{ top:0; right:0; cursor:nesw-resize; }
+body.sc-popdoc .sc-pop-rz.ne{ display:none !important; }
 body.sc-popdoc .sc-pop-rz.sw{ bottom:0; left:0; cursor:nesw-resize; }
 body.sc-popdoc .sc-pop-rz.se{ bottom:0; right:0; cursor:nwse-resize; }
 body.sc-popdoc .sc-pop-rz.se::after{
   content:''; position:absolute; right:5px; bottom:5px; width:8px; height:8px;
-  border-right:2px solid rgba(255,255,255,0.3); border-bottom:2px solid rgba(255,255,255,0.3);
+  border-right:2px solid transparent; border-bottom:2px solid transparent; opacity:0;
   border-bottom-right-radius:4px; transition:border-color .15s;
 }
-body.sc-popdoc .sc-pop-rz.se:hover::after{ border-color:rgba(255,255,255,0.75); }
+body.sc-popdoc .sc-pop-rz.se:hover::after{ opacity:1; border-color:rgba(255,255,255,0.75); }
 html.sc-grabbing, html.sc-grabbing *{ user-select:none !important; }
 html.sc-grab-move *{ cursor:grabbing !important; }
 html.sc-merging::after{

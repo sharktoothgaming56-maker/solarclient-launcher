@@ -1278,6 +1278,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     if (view === 'settings') { refreshAccountSettings(); refreshDiscordSettings(); }
     if (view === 'skins') refreshSkins();
     if (view === 'cosmetics') renderCosmetics();
+    else if (cosmeticViewer) cosmeticViewer.setShowcase(false);
     if (view === 'friends') renderFriendsView();
     if (view === 'servers') renderServers();
     if (view === 'customize') renderCustomize();
@@ -1303,35 +1304,106 @@ const COSMETICS = [
   { id: 'antenna-red', kind: 'antenna', name: 'Signal antenna', blurb: 'A red-tipped antenna.', img: 'assets/cosmetics/antenna_red.png' },
 ];
 
+let cosmeticViewer = null;
+let cosmeticMounting = false;
+let cosmeticPick = '';
+let cosmeticWorn = '';
+
+function cosmeticById(id) { return COSMETICS.find((c) => c.id === id) || null; }
+
+function paintCosmeticStage() {
+  const item = cosmeticById(cosmeticPick);
+  const name = document.getElementById('cosmetics-stage-name');
+  const blurb = document.getElementById('cosmetics-stage-blurb');
+  const btn = document.getElementById('cosmetics-equip');
+  if (name) name.textContent = item ? item.name : 'Nothing equipped';
+  if (blurb) blurb.textContent = item ? item.blurb : 'Pick one. It replaces whatever you\'re wearing.';
+  if (!btn) return;
+  if (!item) { btn.disabled = true; btn.textContent = 'Equip'; btn.classList.add('primary'); return; }
+  btn.disabled = false;
+  const wearing = cosmeticWorn === item.id;
+  btn.textContent = wearing ? 'Take off' : 'Equip';
+  btn.classList.toggle('primary', !wearing);
+}
+
+async function mountCosmeticStage(item) {
+  const canvas = document.getElementById('cosmetics-canvas');
+  if (!canvas) return;
+  await ensureSkin3D();
+  if (!window.Skin3D) return;
+  if (!cosmeticViewer) {
+    cosmeticViewer = new Skin3D(canvas, { yaw: 0.4, zoom: 0.92 });
+    cosmeticViewer.setShowcase(true);
+  }
+  const account = await window.nebula.currentAccount().catch(() => null);
+  if (account && account.id) {
+    const recent = recentAppliedSkin(account.id);
+    const texture = recent ? { dataUrl: recent.dataUrl, model: recent.model } : await loadSkinTexture(account.id);
+    if (texture) {
+      await cosmeticViewer.setSkin(texture.dataUrl);
+      if (texture.model) cosmeticViewer.setSlim(texture.model === 'slim');
+    }
+  }
+  cosmeticViewer.setCosmetic(item ? item.img : null, item ? item.kind : '');
+  cosmeticViewer.setShowcase(true);
+}
+
 async function renderCosmetics() {
   const grid = document.getElementById('cosmetics-grid');
   if (!grid || !window.nebula.cosmeticsGet) return;
   const worn = await window.nebula.cosmeticsGet().catch(() => ({ id: '' }));
-  const onId = worn.id || worn.cape || '';
+  cosmeticWorn = worn.id || worn.cape || '';
+  if (!cosmeticPick) cosmeticPick = cosmeticWorn;
   grid.innerHTML = COSMETICS.map((item) => {
-    const on = onId === item.id;
-    return `<article class="cosmetic-card glass liquid-glass${on ? ' equipped' : ''}">
+    const on = cosmeticWorn === item.id;
+    const sel = cosmeticPick === item.id;
+    return `<button type="button" class="cosmetic-card${on ? ' equipped' : ''}${sel ? ' selected' : ''}" data-id="${item.id}">
       <img src="${item.img}" alt="">
       <h2>${item.name}</h2>
       <p>${item.blurb}</p>
-      <button type="button" class="pill-btn${on ? '' : ' primary'}" data-id="${on ? '' : item.id}">${on ? 'Unequip' : 'Equip'}</button>
-    </article>`;
+      ${on ? '<span class="cosmetic-worn">Wearing</span>' : ''}
+    </button>`;
   }).join('');
-  grid.querySelectorAll('button[data-id]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await window.nebula.cosmeticsEquip('item', btn.dataset.id || null);
+  grid.querySelectorAll('.cosmetic-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      cosmeticPick = card.dataset.id;
+      const item = cosmeticById(cosmeticPick);
+      if (cosmeticViewer) {
+        cosmeticViewer.setCosmetic(item.img, item.kind);
+        cosmeticViewer.setShowcase(true);
+      }
+      renderCosmetics();
+    });
+  });
+  paintCosmeticStage();
+  if (!cosmeticViewer && !cosmeticMounting) {
+    cosmeticMounting = true;
+    mountCosmeticStage(cosmeticById(cosmeticPick)).finally(() => { cosmeticMounting = false; });
+  }
+  else cosmeticViewer.setShowcase(true);
+  const equip = document.getElementById('cosmetics-equip');
+  if (equip && !equip.dataset.bound) {
+    equip.dataset.bound = '1';
+    equip.addEventListener('click', async () => {
+      const next = cosmeticWorn === cosmeticPick ? '' : cosmeticPick;
+      await window.nebula.cosmeticsEquip('item', next || null);
+      cosmeticWorn = next;
+      if (!next) cosmeticPick = '';
+      const item = cosmeticById(cosmeticPick);
+      if (cosmeticViewer) cosmeticViewer.setCosmetic(item ? item.img : null, item ? item.kind : '');
       renderCosmetics();
       applyHeroCosmetic();
     });
-  });
+  }
+  mountCosmeticStage(cosmeticById(cosmeticPick));
 }
 
 async function applyHeroCosmetic() {
   if (!heroViewer?.setCosmetic) return;
   const worn = await window.nebula.cosmeticsGet?.().catch(() => ({ id: '' }));
   const id = worn?.id || worn?.cape || '';
-  const item = COSMETICS.find((c) => c.id === id);
-  heroViewer.setCosmetic(item ? item.img : null);
+  const item = cosmeticById(id);
+  heroViewer.setCosmetic(item ? item.img : null, item ? item.kind : '');
 }
 
 // ---------- skin image helpers (mc-heads primary, crafatar fallback) ----------

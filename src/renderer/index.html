@@ -596,8 +596,17 @@
     <!-- COSMETICS (beta) -->
     <section class="view beta-only" id="view-cosmetics">
       <div class="view-header"><h1>Cosmetics</h1></div>
-      <p class="cosmetics-note">Pick one cosmetic. It shows on your skin here, and other people on SolarClient see it in game.</p>
-      <div class="cosmetics-grid" id="cosmetics-grid"></div>
+      <div class="cosmetics-layout">
+        <div class="cosmetics-stage glass liquid-glass">
+          <canvas id="cosmetics-canvas" class="cosmetics-canvas"></canvas>
+          <div class="cosmetics-stage-name" id="cosmetics-stage-name">Nothing equipped</div>
+          <p class="cosmetics-stage-blurb" id="cosmetics-stage-blurb">Pick one. It replaces whatever you're wearing.</p>
+          <button type="button" class="pill-btn primary cosmetics-equip" id="cosmetics-equip" disabled>Equip</button>
+        </div>
+        <div class="cosmetics-library glass liquid-glass">
+          <div class="cosmetics-grid" id="cosmetics-grid"></div>
+        </div>
+      </div>
     </section>
 
     <!-- SKINS -->
