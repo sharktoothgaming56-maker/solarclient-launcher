@@ -8140,3 +8140,6 @@ body.beta-layout #view-instances .instance-card .del{
 }
 body.beta-layout #view-instances .instance-card .del:hover{ background:linear-gradient(180deg, #f07a72, #d9473f); border-color:#000; color:#fff; transform:translateY(-1px); }
 body.beta-layout #view-instances .instance-card .del:active{ transform:translateY(2px); box-shadow:inset 0 1px 0 rgba(255,255,255,0.15), 0 0 0 #000; }
+#mod-modal .mod-pane[data-pane="levels"] .mod-ban-form{
+  display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;
+}

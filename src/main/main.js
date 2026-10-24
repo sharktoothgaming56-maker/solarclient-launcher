@@ -1358,6 +1358,19 @@ function xpPayload() {
 // sync — previously the launch bonus wrote straight to the store and the
 // renderer had no idea, so whichever widget happened to re-render next
 // showed a different level than the one that didn't.
+// A staff grant is a floor. Playtime can still climb past it, and a grant
+// never wipes a level someone already earned.
+function applyLevelFloor(level) {
+  const target = Math.max(1, Math.min(500, Math.floor(Number(level) || 1)));
+  const need = totalXpForLevel(target);
+  const before = getXpData();
+  if (before.totalXp >= need) return xpPayload();
+  store.set('xp', { totalXp: need, level: levelForTotal(need) });
+  const after = xpPayload();
+  broadcast('xp:changed', { ...after, leveled: after.level > before.level });
+  return after;
+}
+
 function addXp(amount) {
   const before = getXpData();
   const total = before.totalXp + (Number(amount) || 0);
@@ -1427,6 +1440,9 @@ function ensureFriends() {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice:event', m);
   });
   friends.on('error', (e) => console.warn('[friends]', e));
+  friends.on('level-grant', (level) => {
+    try { applyLevelFloor(level); } catch (err) { console.warn('[xp] level grant', err); }
+  });
   wireFriendsBridge();
   return friends;
 }
@@ -1517,7 +1533,7 @@ async function checkDeviceBan() {
 
 const MOD_OPS = new Set([
   'overview', 'flag_delete', 'flags_clear', 'ban', 'unban', 'webhook_test',
-  'mute', 'unmute', 'report_delete', 'reports_clear',
+  'mute', 'unmute', 'report_delete', 'reports_clear', 'level_set',
 ]);
 
 function ensureBridge() {
@@ -1662,9 +1678,9 @@ const friendsHandlers = {
     return b;
   },
   'mod:access': () => !!friends?.isMod,
-  'mod:request': (_e, { op, id, username, uuid, duration, reason }) => {
+  'mod:request': (_e, { op, id, username, uuid, duration, reason, level }) => {
     if (!MOD_OPS.has(op)) throw new Error('Unknown request.');
-    return ensureFriends().modRequest(op, { id, username, uuid, duration, reason });
+    return ensureFriends().modRequest(op, { id, username, uuid, duration, reason, level });
   },
   'mod:file': (_e, { id, file }) => ensureFriends().modReportFile(String(id || ''), String(file || '')),
   'report:send': (_e, { target, targetName, reason, details, context, files }) => {

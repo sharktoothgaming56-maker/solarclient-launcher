@@ -1079,6 +1079,7 @@
       <button type="button" class="mod-tab" data-tab="reports"><b class="mod-count" id="mod-reports-n">0</b><span>Reports</span></button>
       <button type="button" class="mod-tab" data-tab="bans"><b class="mod-count" id="mod-bans-n">0</b><span>Bans</span></button>
       <button type="button" class="mod-tab" data-tab="mutes"><b class="mod-count" id="mod-mutes-n">0</b><span>Mutes</span></button>
+      <button type="button" class="mod-tab" data-tab="levels"><b class="mod-count" id="mod-levels-n">0</b><span>Levels</span></button>
     </div>
 
     <div class="mod-pane" data-pane="flags">
@@ -1176,6 +1177,25 @@
       </form>
       <div class="mod-section-label">Active bans</div>
       <div class="mod-list" id="mod-ban-list"></div>
+    </div>
+
+    <div class="mod-pane hidden" data-pane="levels">
+      <form class="mod-ban-form" id="mod-level-form" autocomplete="off">
+        <div class="mod-field">
+          <label for="mod-level-user">Minecraft username</label>
+          <input id="mod-level-user" maxlength="16" placeholder="Username" spellcheck="false">
+        </div>
+        <div class="mod-field">
+          <label for="mod-level-num">Level</label>
+          <input id="mod-level-num" maxlength="3" inputmode="numeric" placeholder="1–500" spellcheck="false">
+        </div>
+        <div class="mod-ban-foot">
+          <div class="mod-preview" id="mod-level-preview">Sets their level the next time their launcher is online. It never lowers a level they already earned.</div>
+          <button type="submit" class="pill-btn primary" id="mod-level-go">Give level</button>
+        </div>
+      </form>
+      <div class="mod-section-label">Levels given</div>
+      <div class="mod-list" id="mod-level-list"></div>
     </div>
 
     <div class="mod-pane hidden" data-pane="discord">

@@ -1076,6 +1076,11 @@ class Friends extends EventEmitter {
         if (m.kind !== 'global') this.emit('blocked', { kind: m.kind, reason: m.reason || "Your message wasn't sent." });
         break;
       }
+      case 'level_grant': {
+        const level = Math.floor(Number(m.level));
+        if (level >= 1 && level <= 500) this.emit('level-grant', level);
+        break;
+      }
       case 'mod_result': {
         this._modWaiters.get(m.reqId)?.(m);
         break;

@@ -8897,6 +8897,7 @@ for (const id of SC_FOLLOW_IDS) {
   const reportList = $('mod-report-list');
   const banList = $('mod-ban-list');
   const muteList = $('mod-mute-list');
+  const levelList = $('mod-level-list');
   const search = $('mod-flag-search');
   const reportSearch = $('mod-report-search');
   const refreshBtn = $('mod-refresh');
@@ -8910,7 +8911,7 @@ for (const id of SC_FOLLOW_IDS) {
   const ICON_FIND = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>';
 
   let isMod = false;
-  let data = { flags: [], reports: [], bans: [], mutes: [], webhook: false };
+  let data = { flags: [], reports: [], bans: [], mutes: [], levels: [], webhook: false };
   let flagFilter = 'all';
   const fileCache = new Map();   // file id -> blob url
   let unseen = 0;
@@ -8953,7 +8954,7 @@ for (const id of SC_FOLLOW_IDS) {
     if (spin) refreshBtn.classList.add('spin');
     try {
       const d = await window.nebula.modRequest({ op: 'overview' });
-      data = { flags: d.flags || [], reports: d.reports || [], bans: d.bans || [], mutes: d.mutes || [], webhook: !!d.webhook };
+      data = { flags: d.flags || [], reports: d.reports || [], bans: d.bans || [], mutes: d.mutes || [], levels: d.levels || [], webhook: !!d.webhook };
       const seen = seenAt();
       unseen = isOpen() ? 0 : data.flags.filter(f => loud(f) && f.at > seen).length + data.reports.filter(r => r.at > seen).length;
       setBadge();
@@ -8970,9 +8971,10 @@ for (const id of SC_FOLLOW_IDS) {
     renderReports();
     renderBans();
     renderMutes();
+    renderLevels();
     renderDiscord();
     const counts = [['mod-flags-n', data.flags.filter(loud).length], ['mod-reports-n', data.reports.length],
-      ['mod-bans-n', data.bans.length], ['mod-mutes-n', data.mutes.length]];
+      ['mod-bans-n', data.bans.length], ['mod-mutes-n', data.mutes.length], ['mod-levels-n', data.levels.length]];
     for (const [id, n] of counts) {
       $(id).textContent = String(n);
       $(id).closest('.mod-tab').classList.toggle('has', n > 0 && (id === 'mod-flags-n' || id === 'mod-reports-n'));
@@ -9090,6 +9092,22 @@ for (const id of SC_FOLLOW_IDS) {
     muteList.innerHTML = data.mutes.length
       ? data.mutes.map(m => sentenceCard(m, `data-uuid="${escapeHtml(m.uuid)}"`, 'unmute')).join('')
       : empty(ICON_OK, 'Nobody is muted', 'Muted players can still use the launcher, they just can\'t send messages in live chat.');
+  }
+
+  function renderLevels() {
+    levelList.innerHTML = data.levels.length
+      ? data.levels.map((g) => `
+      <div class="mod-card mod-ban-row">
+        <div class="mod-card-head">
+          <img class="mod-face" src="${frAvatar(g.uuid)}" alt="" ${personAttr(g.uuid, g.name)}>
+          <div class="mod-who">
+            <b><span ${personAttr(g.uuid, g.name)}>${escapeHtml(g.name)}</span></b>
+            <span>${g.byName ? `by ${escapeHtml(g.byName)} · ` : ''}${stamp(g.at)}</span>
+          </div>
+          <span class="mod-tag temp">Lv ${escapeHtml(String(g.level))}</span>
+        </div>
+      </div>`).join('')
+      : empty(ICON_OK, 'No levels given', 'Set a username and a level from 1 to 500. Their launcher picks it up while they are online.');
   }
 
   function renderDiscord() {
@@ -9217,6 +9235,38 @@ for (const id of SC_FOLLOW_IDS) {
       showToast(escapeHtml(`${res.name || username} muted`), escapeHtml(`${res.length || ''} · ${discordNote(res)}`),
         res.discord === 'sent' ? 'success' : 'error');
     },
+  });
+
+  const levelForm = $('mod-level-form');
+  const levelUser = $('mod-level-user');
+  const levelNum = $('mod-level-num');
+  const levelGo = $('mod-level-go');
+  levelForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = levelUser.value.trim();
+    const level = Math.floor(Number(levelNum.value));
+    if (!/^\w{2,16}$/.test(username)) { showToast('Level', 'Enter their Minecraft username.', 'error'); levelUser.focus(); return; }
+    if (!Number.isInteger(level) || level < 1 || level > 500) { showToast('Level', 'Enter a level from 1 to 500.', 'error'); levelNum.focus(); return; }
+    const ok = await showConfirm(
+      `${username} will be raised to level ${level} the next time their launcher is online. A level they already earned stays.`,
+      { title: `Give ${username} level ${level}?`, confirmLabel: 'Give level' });
+    if (!ok) return;
+    levelGo.disabled = true;
+    const idleLabel = levelGo.textContent;
+    levelGo.textContent = 'Saving…';
+    try {
+      const res = await window.nebula.modRequest({ op: 'level_set', username, level });
+      levelForm.reset();
+      data.levels = res.levels || data.levels;
+      renderAll();
+      const where = res.online ? 'Applied now.' : 'Saved. It applies when their launcher is online.';
+      showToast(escapeHtml(`${res.name || username} → level ${res.level}`), escapeHtml(where), 'success');
+    } catch (err) {
+      showToast("Couldn't set level", escapeHtml(cleanErr(err)), 'error');
+    } finally {
+      levelGo.disabled = false;
+      levelGo.textContent = idleLabel;
+    }
   });
 
   function showTab(tab) {
