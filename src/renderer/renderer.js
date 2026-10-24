@@ -1307,21 +1307,47 @@ const COSMETICS = [
 let cosmeticViewer = null;
 let cosmeticMounting = false;
 let cosmeticPick = '';
-let cosmeticWorn = '';
+let cosmeticWorn = [];
 
 function cosmeticById(id) { return COSMETICS.find((c) => c.id === id) || null; }
+
+function clothKind(kind) { return kind === 'cape' || kind === 'cloak'; }
+
+function wornIds(worn) {
+  if (Array.isArray(worn?.ids) && worn.ids.length) return worn.ids.filter(Boolean);
+  const one = worn?.id || worn?.cape || '';
+  return one ? String(one).split(',').filter(Boolean) : [];
+}
+
+function toggleCosmetic(id) {
+  const item = cosmeticById(id);
+  const next = cosmeticWorn.filter((wornId) => wornId !== id);
+  if (next.length === cosmeticWorn.length && item) {
+    if (clothKind(item.kind)) {
+      return [id, ...cosmeticWorn.filter((wornId) => !clothKind(cosmeticById(wornId)?.kind))];
+    }
+    return [...cosmeticWorn, id];
+  }
+  return next;
+}
+
+function stageItems() {
+  const ids = cosmeticWorn.slice();
+  if (cosmeticPick && !ids.includes(cosmeticPick)) ids.push(cosmeticPick);
+  return ids.map(cosmeticById).filter(Boolean);
+}
 
 function paintCosmeticStage() {
   const item = cosmeticById(cosmeticPick);
   const name = document.getElementById('cosmetics-stage-name');
   const blurb = document.getElementById('cosmetics-stage-blurb');
   const btn = document.getElementById('cosmetics-equip');
-  if (name) name.textContent = item ? item.name : 'Nothing equipped';
-  if (blurb) blurb.textContent = item ? item.blurb : 'Pick one. It replaces whatever you\'re wearing.';
+  if (name) name.textContent = item ? item.name : (cosmeticWorn.length ? 'Wearing ' + cosmeticWorn.length : 'Nothing equipped');
+  if (blurb) blurb.textContent = item ? item.blurb : 'Pick any of them. They stack. A new cape replaces the cape you have on.';
   if (!btn) return;
   if (!item) { btn.disabled = true; btn.textContent = 'Equip'; btn.classList.add('primary'); return; }
   btn.disabled = false;
-  const wearing = cosmeticWorn === item.id;
+  const wearing = cosmeticWorn.includes(item.id);
   btn.textContent = wearing ? 'Take off' : 'Equip';
   btn.classList.toggle('primary', !wearing);
 }
@@ -1344,18 +1370,19 @@ async function mountCosmeticStage(item) {
       if (texture.model) cosmeticViewer.setSlim(texture.model === 'slim');
     }
   }
-  cosmeticViewer.setCosmetic(item ? item.img : null, item ? item.kind : '');
+  const shown = stageItems();
+  cosmeticViewer.setCosmetics(shown.map((entry) => ({ img: entry.img, kind: entry.kind })));
   cosmeticViewer.setShowcase(true);
 }
 
 async function renderCosmetics() {
   const grid = document.getElementById('cosmetics-grid');
   if (!grid || !window.nebula.cosmeticsGet) return;
-  const worn = await window.nebula.cosmeticsGet().catch(() => ({ id: '' }));
-  cosmeticWorn = worn.id || worn.cape || '';
-  if (!cosmeticPick) cosmeticPick = cosmeticWorn;
+  const worn = await window.nebula.cosmeticsGet().catch(() => ({ ids: [] }));
+  cosmeticWorn = wornIds(worn);
+  if (!cosmeticPick) cosmeticPick = cosmeticWorn[0] || '';
   grid.innerHTML = COSMETICS.map((item) => {
-    const on = cosmeticWorn === item.id;
+    const on = cosmeticWorn.includes(item.id);
     const sel = cosmeticPick === item.id;
     return `<button type="button" class="cosmetic-card${on ? ' equipped' : ''}${sel ? ' selected' : ''}" data-id="${item.id}">
       <img src="${item.img}" alt="">
@@ -1369,7 +1396,8 @@ async function renderCosmetics() {
       cosmeticPick = card.dataset.id;
       const item = cosmeticById(cosmeticPick);
       if (cosmeticViewer) {
-        cosmeticViewer.setCosmetic(item.img, item.kind);
+        const shown = stageItems();
+        cosmeticViewer.setCosmetics(shown.map((entry) => ({ img: entry.img, kind: entry.kind })));
         cosmeticViewer.setShowcase(true);
       }
       renderCosmetics();
@@ -1385,12 +1413,11 @@ async function renderCosmetics() {
   if (equip && !equip.dataset.bound) {
     equip.dataset.bound = '1';
     equip.addEventListener('click', async () => {
-      const next = cosmeticWorn === cosmeticPick ? '' : cosmeticPick;
-      await window.nebula.cosmeticsEquip('item', next || null);
+      const next = toggleCosmetic(cosmeticPick);
+      await window.nebula.cosmeticsEquip({ ids: next });
       cosmeticWorn = next;
-      if (!next) cosmeticPick = '';
-      const item = cosmeticById(cosmeticPick);
-      if (cosmeticViewer) cosmeticViewer.setCosmetic(item ? item.img : null, item ? item.kind : '');
+      const shown = stageItems();
+      if (cosmeticViewer) cosmeticViewer.setCosmetics(shown.map((entry) => ({ img: entry.img, kind: entry.kind })));
       renderCosmetics();
       applyHeroCosmetic();
     });
@@ -1400,10 +1427,10 @@ async function renderCosmetics() {
 
 async function applyHeroCosmetic() {
   if (!heroViewer?.setCosmetic) return;
-  const worn = await window.nebula.cosmeticsGet?.().catch(() => ({ id: '' }));
-  const id = worn?.id || worn?.cape || '';
-  const item = cosmeticById(id);
-  heroViewer.setCosmetic(item ? item.img : null, item ? item.kind : '');
+  const worn = await window.nebula.cosmeticsGet?.().catch(() => ({ ids: [] }));
+  const items = wornIds(worn).map(cosmeticById).filter(Boolean);
+  if (heroViewer.setCosmetics) heroViewer.setCosmetics(items.map((entry) => ({ img: entry.img, kind: entry.kind })));
+  else heroViewer.setCosmetic(items[0] ? items[0].img : null, items[0] ? items[0].kind : '');
 }
 
 // ---------- skin image helpers (mc-heads primary, crafatar fallback) ----------

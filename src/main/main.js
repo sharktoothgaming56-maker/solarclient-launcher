@@ -1873,13 +1873,19 @@ const COSMETIC_IDS = new Set([
 
 function readCosmetics() {
   const saved = store.get('cosmetics', {});
-  const id = COSMETIC_IDS.has(saved.id) ? saved.id : (COSMETIC_IDS.has(saved.cape) ? saved.cape : '');
-  return { id, cape: id, hat: '' };
+  let ids = Array.isArray(saved.ids) ? saved.ids.filter((item) => COSMETIC_IDS.has(item)) : [];
+  if (!ids.length) {
+    const raw = COSMETIC_IDS.has(saved.id) ? saved.id : (typeof saved.cape === 'string' ? saved.cape : '');
+    ids = String(raw || '').split(',').map((item) => item.trim()).filter((item) => COSMETIC_IDS.has(item));
+  }
+  return { ids, id: ids[0] || '', cape: ids.join(','), hat: '' };
 }
 
 function writeCosmeticsFile(worn) {
   const file = path.join(app.getPath('userData'), 'cosmetics.json');
-  fs.writeFileSync(file, JSON.stringify({ id: worn.id || '', cape: worn.id || '', hat: '' }));
+  const ids = worn.ids || [];
+  const back = ids.find((item) => item.startsWith('cape-') || item === 'cloak-gold' || item === 'wings-solar' || item === 'backpack-crate') || ids[0] || '';
+  fs.writeFileSync(file, JSON.stringify({ ids, id: back, cape: ids.join(','), hat: '' }));
 }
 
 async function publishCosmetics(worn) {
@@ -1888,10 +1894,11 @@ async function publishCosmetics(worn) {
   const account = getAccounts().find(a => a.id === store.get('activeAccountId'));
   const id = String(account?.id || '').replace(/-/g, '').toLowerCase();
   if (!/^[0-9a-f]{32}$/.test(id)) return worn;
+  const ids = worn.ids || [];
   await fetch(`${base}/cosmetics`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id, item: worn.id || '', cape: worn.id || '', hat: '' }),
+    body: JSON.stringify({ id, ids, item: ids.join(','), cape: ids.join(','), hat: '' }),
     signal: AbortSignal.timeout(8000),
   });
   return worn;
@@ -1903,8 +1910,12 @@ ipcMain.handle('cosmetics:get', () => {
   return worn;
 });
 
-ipcMain.handle('cosmetics:equip', async (_e, { slot, id } = {}) => {
-  const next = { id: id && COSMETIC_IDS.has(id) ? id : '' };
+ipcMain.handle('cosmetics:equip', async (_e, payload = {}) => {
+  const incoming = Array.isArray(payload.ids)
+    ? payload.ids
+    : (payload.id ? String(payload.id).split(',') : []);
+  const ids = incoming.map((item) => String(item || '').trim()).filter((item) => COSMETIC_IDS.has(item));
+  const next = { ids, id: ids[0] || '', cape: ids.join(',') };
   store.set('cosmetics', next);
   try { await publishCosmetics(next); } catch (err) {
     console.warn('[SolarClient] cosmetics publish failed:', err.message);

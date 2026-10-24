@@ -248,7 +248,7 @@ const api = {
   xpGet: () => ipcRenderer.invoke('xp:get'),
   leaderboard: () => ipcRenderer.invoke('leaderboard:list'),
   cosmeticsGet: () => ipcRenderer.invoke('cosmetics:get'),
-  cosmeticsEquip: (slot, id) => ipcRenderer.invoke('cosmetics:equip', { slot, id }),
+  cosmeticsEquip: (payload, id) => ipcRenderer.invoke('cosmetics:equip', payload && payload.ids ? payload : { slot: payload, id }),
   xpAdd: (amount) => ipcRenderer.invoke('xp:add', amount),
   onXpChanged: (cb) => ipcRenderer.on('xp:changed', (_e, payload) => cb(payload)),
   fetchImageBase64: (url) => ipcRenderer.invoke('util:fetchImageBase64', url),

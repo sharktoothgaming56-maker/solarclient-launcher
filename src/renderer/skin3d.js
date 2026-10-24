@@ -259,32 +259,45 @@
   };
   Skin3D.prototype.setOverlay = function (v) { this.showOverlay = !!v; this._applyVisibility(); this.render(); };
   Skin3D.prototype.setCosmetic = function (src, kind) {
+    this.setCosmetics(src ? [{ img: src, kind: kind || '' }] : []);
+  };
+
+  Skin3D.prototype.setCosmetics = function (items) {
     this._clearCosmetic();
-    this._cosmetic = src || null;
-    this._kind = kind || '';
-    const back = this._kind === 'cape' || this._kind === 'cloak' || this._kind === 'wings' || this._kind === 'backpack';
+    const list = (items || []).filter((item) => item && item.img);
+    this._cosmetic = list.map((item) => item.img).join('|');
+    const back = list.some((item) => item.kind === 'cape' || item.kind === 'cloak' || item.kind === 'wings' || item.kind === 'backpack');
     this._showYaw = back ? Math.PI * 0.96 : 0.42;
-    if (!src) { this.render(); return; }
-    const img = new Image();
-    img.onload = () => {
-      if (this._cosmetic !== src) return;
-      this._mountCosmetic(img, this._kind);
-      this._equipT = this._showcase ? 0 : 1;
-      this.render();
-    };
-    img.src = src;
+    if (!list.length) { this.render(); return; }
+    const token = this._cosmetic;
+    let left = list.length;
+    const loaded = new Array(list.length);
+    list.forEach((item, i) => {
+      const img = new Image();
+      img.onload = () => {
+        loaded[i] = { img, kind: item.kind };
+        if (--left > 0) return;
+        if (this._cosmetic !== token) return;
+        loaded.forEach((row) => { if (row) this._mountCosmetic(row.img, row.kind); });
+        this._equipT = this._showcase ? 0 : 1;
+        this.render();
+      };
+      img.src = item.img;
+    });
   };
 
   Skin3D.prototype._clearCosmetic = function () {
-    const root = this._cosmeticRoot;
-    if (root) {
+    const roots = this._cosmeticRoots || (this._cosmeticRoot ? [this._cosmeticRoot] : []);
+    roots.forEach((root) => {
+      if (!root) return;
       root.parent && root.parent.remove(root);
       root.traverse && root.traverse((n) => {
         if (n.geometry) n.geometry.dispose();
         const mats = n.material ? [].concat(n.material) : [];
         mats.forEach((m) => { if (m.map) m.map.dispose(); m.dispose && m.dispose(); });
       });
-    }
+    });
+    this._cosmeticRoots = [];
     this._cosmeticRoot = null;
     this._capePivot = null;
     this._wingPivots = null;
@@ -325,106 +338,124 @@
     else if (kind === 'belt' || kind === 'scarf') skin.body.add(root);
     else skin.head.add(root);
     this._cosmeticRoot = root;
-
-    const sheet = document.createElement('canvas');
-    sheet.width = img.naturalWidth || img.width;
-    sheet.height = img.naturalHeight || img.height;
-    const sg = sheet.getContext('2d');
-    sg.imageSmoothingEnabled = false;
-    sg.drawImage(img, 0, 0);
-    const tex = new g.Tex(sheet);
-    tex.magFilter = g.nearest;
-    tex.minFilter = g.nearest;
-    tex.needsUpdate = true;
-    const cloth = new g.Mat({ map: tex, transparent: true, alphaTest: 0.15, side: 2 });
+    (this._cosmeticRoots || (this._cosmeticRoots = [])).push(root);
 
     const dyed = (parent, x, y, z, w, h, d, color) => {
-      const mesh = new g.Mesh(new g.Box(w, h, d), new g.Mat({ color }));
+      const mesh = new g.Mesh(new g.Box(Math.abs(w), Math.abs(h), Math.abs(d)), new g.Mat({ color }));
       mesh.position.set(x, y, z);
       parent.add(mesh);
     };
 
     if (kind === 'cape' || kind === 'cloak') {
-      const h = kind === 'cloak' ? 20 : 16;
+      const sheet = document.createElement('canvas');
+      sheet.width = img.naturalWidth || img.width;
+      sheet.height = img.naturalHeight || img.height;
+      const sg = sheet.getContext('2d');
+      sg.imageSmoothingEnabled = false;
+      sg.drawImage(img, 0, 0);
+      const tex = new g.Tex(sheet);
+      tex.magFilter = g.nearest;
+      tex.minFilter = g.nearest;
+      tex.needsUpdate = true;
+      const cloth = new g.Mat({ map: tex, transparent: true, alphaTest: 0.2, side: 2 });
+      const h = kind === 'cloak' ? 22 : 16;
       root.position.set(0, 8, -2);
-      const mesh = new g.Mesh(new g.Box(10, h, 0.4), cloth);
+      const mesh = new g.Mesh(new g.Box(10, h, 0.12), cloth);
       mesh.position.y = -h / 2;
       root.add(mesh);
       root.rotation.x = 10.8 * Math.PI / 180;
+      dyed(root, 0, 0.15, 0.4, 8.2, 1.25, 1.05, kind === 'cloak' ? 0xE2B340 : 0x5C2E86);
       this._capePivot = root;
       return;
     }
     if (kind === 'wings') {
+      // Behind the ribs, opening backward. Nothing crosses the chest.
       this._wingPivots = [-1, 1].map((side) => {
         const pivot = new g.Group();
-        pivot.position.set(side * 1.5, 6, -2);
-        const mesh = new g.Mesh(new g.Box(14, 18, 0.35), cloth);
-        mesh.position.set(side * 7, -1, 0);
-        pivot.add(mesh);
+        pivot.position.set(side * 4.6, 5.8, -2.8);
+        pivot.rotation.y = side * -0.5;
+        pivot.rotation.z = side * -0.16;
+        dyed(pivot, side * 1.5, -0.6, -2.4, 2.4, 4.2, 3.6, 0x4A2E8A);
+        dyed(pivot, side * 2.6, -1.3, -5.6, 2.8, 5.6, 4.2, 0x7A4DE0);
+        dyed(pivot, side * 3.4, -2.2, -8.8, 2.2, 3.8, 3.2, 0xC9B4FF);
+        dyed(pivot, side * 2.4, 1.1, -5.4, 0.55, 0.4, 9.2, 0xE2B340);
+        dyed(pivot, side * 2.2, -0.2, -4.2, 0.35, 3.2, 0.3, 0xE2B340);
         root.add(pivot);
         return pivot;
       });
-      this._wingPivots[0].rotation.y = 0.45;
-      this._wingPivots[0].rotation.z = 0.35;
-      this._wingPivots[1].rotation.y = -0.45;
-      this._wingPivots[1].rotation.z = -0.35;
       return;
     }
     if (kind === 'backpack') {
-      dyed(root, 0, 2.4, -3.3, 7, 8, 4, 0x8B5A2B);
-      dyed(root, 0, 2.6, -5.4, 5, 5, 0.7, 0xC4A46A);
-      dyed(root, 0, -0.6, -2.6, 6.4, 1.2, 3, 0x5C3A1E);
+      dyed(root, 0, 2.2, -4.15, 6.6, 7.4, 3, 0x8B5A2B);
+      dyed(root, 0, 5.4, -4.35, 6.8, 2, 3.3, 0x5C3A1E);
+      dyed(root, 0, 0.6, -5.75, 4, 2.6, 0.4, 0xC4A46A);
+      dyed(root, -2.3, 6.2, -0.6, 0.9, 3.4, 3.6, 0x4A2E16);
+      dyed(root, 2.3, 6.2, -0.6, 0.9, 3.4, 3.6, 0x4A2E16);
       return;
     }
     if (kind === 'bandana') {
-      dyed(root, 0, 6.2, 0, 9, 2.2, 9, 0xC4353A);
-      dyed(root, 0, 5.2, 4.6, 1.4, 3.2, 0.5, 0x8E2428);
+      dyed(root, 0, 6.5, 0, 8.45, 1.45, 8.45, 0xC4353A);
+      dyed(root, 0, 6.5, 0, 8.6, 0.38, 8.6, 0x8E2428);
+      dyed(root, 0, 6.35, -4.55, 1.5, 1.15, 0.7, 0x8E2428);
+      dyed(root, -0.55, 4.3, -4.7, 0.62, 4.2, 0.3, 0xC4353A);
+      dyed(root, 0.55, 3.7, -4.7, 0.62, 3.4, 0.3, 0x8E2428);
       return;
     }
     if (kind === 'headphones') {
-      dyed(root, 0, 7.2, 0, 8, 1.1, 1.1, 0x7A4DE0);
-      dyed(root, -4.6, 4.2, 0, 1.9, 3, 2.8, 0x7A4DE0);
-      dyed(root, 4.6, 4.2, 0, 1.9, 3, 2.8, 0x7A4DE0);
-      dyed(root, -4.6, 4.2, 0, 1.2, 2, 3.4, 0x16161C);
-      dyed(root, 4.6, 4.2, 0, 1.2, 2, 3.4, 0x16161C);
+      dyed(root, 0, 8.4, 0, 7.2, 0.8, 1.1, 0x6A3AD4);
+      dyed(root, -4.15, 6.4, 0, 0.8, 4, 0.8, 0x6A3AD4);
+      dyed(root, 4.15, 6.4, 0, 0.8, 4, 0.8, 0x6A3AD4);
+      dyed(root, -4.9, 4.3, 0, 1.5, 2.6, 2.4, 0x7A4DE0);
+      dyed(root, 4.9, 4.3, 0, 1.5, 2.6, 2.4, 0x7A4DE0);
+      dyed(root, -4.25, 4.3, 0, 0.4, 1.7, 1.6, 0x16161C);
+      dyed(root, 4.25, 4.3, 0, 0.4, 1.7, 1.6, 0x16161C);
       return;
     }
     if (kind === 'glasses') {
-      dyed(root, -2.1, 4.1, 4.4, 3.6, 2.2, 0.3, 0xE2B340);
-      dyed(root, 2.1, 4.1, 4.4, 3.6, 2.2, 0.3, 0xE2B340);
-      dyed(root, 0, 4.1, 4.4, 1.2, 0.4, 0.3, 0xE2B340);
-      dyed(root, -2.1, 4.1, 4.7, 2.4, 1.2, 0.2, 0x121820);
-      dyed(root, 2.1, 4.1, 4.7, 2.4, 1.2, 0.2, 0x121820);
+      dyed(root, -2.05, 4.35, 4.4, 3.1, 1.65, 0.3, 0xE2B340);
+      dyed(root, 2.05, 4.35, 4.4, 3.1, 1.65, 0.3, 0xE2B340);
+      dyed(root, 0, 4.55, 4.4, 1.05, 0.32, 0.3, 0xE2B340);
+      dyed(root, -2.05, 4.35, 4.62, 2.2, 1.1, 0.14, 0x12141A);
+      dyed(root, 2.05, 4.35, 4.62, 2.2, 1.1, 0.14, 0x12141A);
+      dyed(root, -3.55, 4.7, 0.4, 0.28, 0.28, 7.2, 0xC4922E);
+      dyed(root, 3.55, 4.7, 0.4, 0.28, 0.28, 7.2, 0xC4922E);
       return;
     }
     if (kind === 'halo') {
       this._halo = new g.Group();
-      this._halo.position.y = 9.2;
+      this._halo.position.y = 9.6;
+      this._halo.rotation.x = 0.2;
       root.add(this._halo);
-      for (let i = 0; i < 10; i++) {
-        const a = i / 10 * Math.PI * 2;
-        dyed(this._halo, Math.cos(a) * 4.2, 0, Math.sin(a) * 4.2, 1.5, 0.45, 1.5, 0xF0C14A);
+      for (let i = 0; i < 16; i++) {
+        const a = i / 16 * Math.PI * 2;
+        dyed(this._halo, Math.cos(a) * 4.5, 0, Math.sin(a) * 4.5, 1.15, 0.28, 0.7, 0xF0C14A);
       }
       return;
     }
     if (kind === 'shoulders') {
-      dyed(root, -5, -2, 0, 5.2, 2.4, 5.2, 0xC5C8CE);
-      dyed(root, 5, -2, 0, 5.2, 2.4, 5.2, 0xC5C8CE);
+      [-1, 1].forEach((side) => {
+        const x = side * 5.1;
+        dyed(root, x, 0.4, 0, 4.8, 2.1, 4.8, 0xC5C8CE);
+        dyed(root, x, 1.35, 0, 3.5, 0.55, 3.5, 0x8E939B);
+        dyed(root, x, 0.5, 2.3, 3.1, 1.1, 0.35, 0xEEF0F3);
+      });
       return;
     }
     if (kind === 'belt') {
-      dyed(root, 0, -4.2, 0, 8.6, 1.6, 4.8, 0x6B4423);
-      dyed(root, 0, -4.2, 2.5, 2.2, 2, 0.5, 0xE2B340);
+      dyed(root, 0, -4.6, 0, 8.4, 1.3, 4.35, 0x6B4423);
+      dyed(root, 0, -4.6, 2.3, 2, 1.65, 0.32, 0xE2B340);
+      dyed(root, 0, -4.6, 2.5, 0.65, 0.65, 0.16, 0x6B4423);
       return;
     }
     if (kind === 'scarf') {
-      dyed(root, 0, 5.2, 0, 8.4, 2.4, 4.6, 0x2F8A45);
-      dyed(root, 1.6, 2, 2.4, 1.6, 7, 0.5, 0x1E5C30);
+      dyed(root, 0, 5.4, 0, 8.5, 2.15, 4.55, 0x2F8A45);
+      dyed(root, 1.2, 2.2, 2.2, 1.35, 6.4, 0.38, 0x1E5C30);
+      dyed(root, 1.2, -1.1, 2.2, 1.55, 0.55, 0.42, 0xE8DCC8);
       return;
     }
     if (kind === 'antenna') {
-      dyed(root, 2.2, 11, 0, 0.7, 6, 0.7, 0x2A2A30);
-      dyed(root, 2.2, 14.4, 0, 1.3, 1.3, 1.3, 0xE23B3B);
+      dyed(root, 3.1, 10.7, 0, 0.45, 5.2, 0.45, 0x2A2A30);
+      dyed(root, 3.1, 13.5, 0, 1.15, 1.15, 1.15, 0xE23B3B);
     }
   };
 
@@ -451,19 +482,17 @@
       this._equipT = Math.min(1, (this._equipT || 0) + 0.028);
       if (this._capePivot) {
         const rest = 10.8 * Math.PI / 180;
-        const sway = Math.sin(t * 2.2) * 0.07 + Math.sin(t * 0.7) * 0.035;
-        this._capePivot.rotation.x = 1.15 + (rest + sway - 1.15) * ease;
-        this._capePivot.scale.setScalar(0.72 + 0.28 * ease);
+        const sway = Math.sin(t * 1.6) * 0.05;
+        this._capePivot.rotation.x = 0.62 + (rest + sway - 0.62) * ease;
+        this._capePivot.scale.set(1, 1, 1);
       }
       if (this._wingPivots) {
-        const flap = Math.sin(t * 5) * 0.28;
-        this._wingPivots[0].rotation.y = 0.45 + flap;
-        this._wingPivots[1].rotation.y = -0.45 - flap;
-        this._wingPivots[0].rotation.z = 0.35;
-        this._wingPivots[1].rotation.z = -0.35;
-        this._cosmeticRoot.scale.setScalar(0.4 + 0.6 * ease);
+        const flap = Math.sin(t * 4) * 0.06;
+        this._wingPivots[0].rotation.y = 0.5 + flap;
+        this._wingPivots[1].rotation.y = -0.5 - flap;
+        this._cosmeticRoot.scale.set(1, 1, 1);
       } else if (this._cosmeticRoot && !this._capePivot) {
-        this._cosmeticRoot.scale.setScalar(0.45 + 0.55 * ease);
+        this._cosmeticRoot.scale.set(1, 1, 1);
       }
       if (this._halo) this._halo.rotation.y = t * 0.9;
       const skin = this.viewer.playerObject.skin;
